@@ -1,4 +1,4 @@
-# ArmaHost Desktop 1.3.0
+# ArmaHost Desktop 1.3.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
 
@@ -16,7 +16,7 @@ The repository and source ZIP do not include `dist`. For source development, ins
 - Single-instance startup focuses the existing window.
 - Window size persists between launches.
 - Ctrl+S saves unsaved dashboard changes.
-- Closing warns about unsaved edits or a running managed server, then stops the owned process.
+- Closing warns about unsaved edits; the dedicated server stays running.
 - File menu and sidebar open the persistent data directory.
 - Loopback manager uses an available port automatically.
 - Sandboxed renderer, isolated preload and restricted desktop bridge.
@@ -29,7 +29,13 @@ Settings and logs live under the Windows user profile, accessible through Open d
 
 npm test runs the backend tests. npm run smoke launches the real desktop UI, verifies connection and native controls, starts and stops a demo worker, and saves desktop-smoke.json plus docs/screenshots/desktop.png. npm run build creates Windows x64 installer and portable executables in dist.
 
-The executables are unsigned. Live Arma 3 hosting requires the game and dedicated server installations and has not been verified by the demo test. Closing the manager terminates its owned server; save mission progress first. Passwords remain in local settings in plain text, matching the original utility.
+The executables are unsigned. Live Arma 3 hosting requires the game and dedicated server installations. Joining launches through the official BattlEye bootstrap when enabled. An already-running game or dedicated server blocks a second launch.
+
+The dedicated server runs independently of the desktop and stays running after closing it. Reopen ArmaHost to reconnect to the verified saved server session. Use **Stop server** to stop it; save mission progress first. A desktop renderer crash reloads the dashboard. This does not recover a dedicated server that itself crashes. Passwords remain in local settings in plain text, matching the original utility.
+
+### Updates
+
+Open **App updates** in the sidebar. Check for updates, download the verified installer, then install. Private repository access requires a GitHub token with Contents read access; the token is kept only in memory for the session. You can also use **Open GitHub Releases** in your signed-in browser. Portable updates reveal the downloaded executable in Explorer and close the old app; open the new file afterwards. Version 1.3.0 needs one manual update to gain this updater.
 
 Original documentation: docs/LEGACY-README.md. Desktop implementation: desktop/main.mjs and desktop/preload.cjs.
 

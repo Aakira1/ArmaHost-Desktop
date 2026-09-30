@@ -1,4 +1,4 @@
-# ArmaHost Desktop 1.3.0
+# ArmaHost Desktop 1.3.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
 
@@ -12,7 +12,7 @@ Download the installer or portable executable from [GitHub Releases](https://git
 - Single-instance startup focuses the existing window.
 - Window size persists between launches.
 - Ctrl+S saves unsaved dashboard changes.
-- Closing warns about unsaved edits or a running managed server, then stops the owned process.
+- Closing warns about unsaved edits; the dedicated server stays running.
 - File menu and sidebar open the persistent data directory.
 - Loopback manager uses an available port automatically.
 - Sandboxed renderer, isolated preload and restricted desktop bridge.
@@ -23,6 +23,6 @@ Settings and logs live under the Windows user profile, accessible through Open d
 
 npm test runs the backend tests. npm run smoke launches the real desktop UI, verifies connection and native controls, starts and stops a demo worker, and saves desktop-smoke.json plus docs/screenshots/desktop.png. npm run build creates Windows x64 installer and portable executables in dist.
 
-The executables are unsigned. Live Arma 3 hosting requires the game and dedicated server installations and has not been verified by the demo test. Closing the manager terminates its owned server; save mission progress first. Passwords remain in local settings in plain text, matching the original utility.
+The executables are unsigned. Live Arma 3 hosting requires the game and dedicated server installations and has not been verified by the demo test. The dedicated server stays running when the desktop closes. Reopen the app to reconnect; use Stop server to stop it. Passwords remain in local settings in plain text, matching the original utility.
 
 Original documentation: docs/LEGACY-README.md. Desktop implementation: desktop/main.mjs and desktop/preload.cjs.

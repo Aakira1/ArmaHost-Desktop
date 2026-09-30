@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, copyFile, readdir, unlink } from 'node:fs/promises';
+import { mkdir, copyFile, readdir, unlink, readFile } from 'node:fs/promises';
+import { openSync, closeSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import path from 'node:path';
@@ -9,6 +11,7 @@ import { atomicWrite } from './store.mjs';
 import { isFile, isDirectory } from './discovery.mjs';
 import { RptTail } from './logs.mjs';
 import { hostingInfo, bindAddress } from './network.mjs';
+import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function checkUdpPorts(s) {
@@ -31,7 +34,32 @@ export class ProcessManager {
     this.configFile = path.join(dir, 'runtime', 'server.cfg');
     this.profilesDir = path.join(dir, 'profiles'); this.tailTimer = null;
     this.battleyeDir = path.join(dir, 'runtime', 'BattlEye');
+    this.sessionFile = path.join(dir, 'runtime', 'server-session.json');
   }
+  startLogTail() {
+    const rpt = new RptTail(this.profilesDir, this.logs, this.startedAt - 1000);
+    const consoleTail = new RptTail(path.dirname(this.configFile), this.logs, this.startedAt - 1000, /^server-console\.log$/i, 'server');
+    this.logTails = [rpt, consoleTail];
+    void rpt.poll(); void consoleTail.poll();
+    this.logTimer = setInterval(() => { void rpt.poll(); void consoleTail.poll(); }, 1200); this.logTimer.unref();
+  }
+  async restore() {
+    if (this.demo) return;
+    let record;
+    try { record = JSON.parse(await readFile(this.sessionFile, 'utf8')); } catch { return; }
+    let s;
+    try { s = validateSettings(record.settings); if (!await ownsServer(record.pid, s.serverExe, this.configFile)) return; }
+    catch { this.logs.add('Saved server session could not be verified. No process was adopted or stopped.'); return; }
+    const child = new EventEmitter(); child.pid = record.pid;
+    child.kill = () => { void ownsServer(child.pid, s.serverExe, this.configFile).then(owned => { if (owned) process.kill(child.pid); }).catch(error => this.logs.add(`Recovered server stop failed: ${error.message}`)); };
+    this.child = child; this.activeSettings = s; this.startedAt = record.startedAt; this.state = 'running';
+    const poll = setInterval(() => { void ownsServer(child.pid, s.serverExe, this.configFile).then(owned => { if (!owned && this.child === child) { clearInterval(poll); clearInterval(this.logTimer); this.logTimer = null; this.logDrain = this.drainLogs(); this.child = null; this.state = 'stopped'; this.startedAt = null; child.emit('close', null, null); } }).catch(() => {}); }, 2000); poll.unref();
+    this.tailTimer = poll;
+    this.startLogTail();
+    this.logs.setSecrets([s.password, s.adminPassword, s.rconPassword]);
+    this.logs.add(`Reconnected to managed server PID ${child.pid} after desktop restart.`);
+  }
+  drainLogs() { return Promise.all((this.logTails || []).map(async tail => { await tail.poll(); await tail.poll(); })); }
   status() {
     const s = this.child ? this.activeSettings : null;
     return {
@@ -56,6 +84,8 @@ export class ProcessManager {
     if (!this.demo && process.platform !== 'win32') throw new AppError('Live game/server launching requires Windows. Use --demo on this operating system.');
     this.logs.setSecrets([s.password, s.adminPassword, s.rconPassword]);
     if (!this.demo) {
+      const processes = await armaProcesses();
+      if (processes.servers.length) throw new AppError(`An Arma dedicated server is already running (PID ${processes.servers.map(p => p.pid).join(', ')}). Stop it before starting another server here.`, 409);
       if (s.starlink && s.starlinkVpn && !hostingInfo(s).assigned) throw new AppError('The saved VPN address is not assigned to this PC. Connect your VPN and detect its address again before hosting.');
       if (!(await isFile(s.serverExe))) throw new AppError('Server executable not found. Configure arma3server_x64.exe in Setup and save.');
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'client')) {
@@ -87,10 +117,13 @@ export class ProcessManager {
     if (argv.join(' ').length > 28000) { this.state = 'stopped'; throw new AppError('Launch arguments are too long. Reduce mod count or shorten folder paths.'); }
     this.logs.add(this.demo ? 'DEMO launch requested — no game files will be executed.' : `Launching: ${displayCommand(s.serverExe, argv)}`);
     if (!this.demo && s.mods.some(m => m.enabled)) this.logs.add('Mods must be installed with dependencies and trusted signing keys; the manager does not download them.');
+    const output = this.demo ? null : openSync(path.join(this.dir, 'runtime', 'server-console.log'), 'w');
     const child = this.demo
       ? spawn(process.execPath, [fileURLToPath(new URL('./demo-worker.mjs', import.meta.url))], { cwd: this.dir, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], shell: false })
-      : spawn(s.serverExe, argv, { cwd: path.dirname(s.serverExe), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      : spawn(s.serverExe, argv, { cwd: path.dirname(s.serverExe), shell: false, detached: true, windowsHide: true, stdio: ['ignore', output, output] });
+    if (output !== null) closeSync(output);
     this.child = child; this.activeSettings = structuredClone(s); this.startedAt = Date.now();
+    if (!this.demo) this.startLogTail();
     const streamLine = stream => {
       let pending = '';
       stream.setEncoding('utf8');
@@ -100,11 +133,13 @@ export class ProcessManager {
       });
       stream.on('end', () => { if (pending) this.logs.add(pending, 'server'); });
     };
-    streamLine(child.stdout); streamLine(child.stderr);
+    if (this.demo) { streamLine(child.stdout); streamLine(child.stderr); }
     child.on('error', error => { this.lastError = error.message; this.logs.add(`Process error: ${error.message}`); });
     child.once('close', (code, signal) => {
       if (this.child !== child) return;
       clearInterval(this.tailTimer); this.tailTimer = null;
+      clearInterval(this.logTimer); this.logTimer = null;
+      this.logDrain = this.drainLogs();
       this.child = null; this.state = 'stopped';
       this.lastExit = { code, signal, time: new Date().toISOString() };
       this.logs.add(`Managed process exited (code=${code ?? 'none'}, signal=${signal ?? 'none'}).`);
@@ -113,12 +148,14 @@ export class ProcessManager {
     try { await once(child, 'spawn'); }
     catch (error) {
       this.state = 'stopped'; this.child = null; this.startedAt = null;
+      clearInterval(this.logTimer); this.logTimer = null;
       throw new AppError(`Could not launch the server: ${error.message}`);
     }
     this.state = 'running';
     if (!this.demo) {
-      const tail = new RptTail(this.profilesDir, this.logs, this.startedAt - 1000);
-      this.tailTimer = setInterval(() => { void tail.poll(); }, 1200); this.tailTimer.unref();
+      child.unref();
+      await atomicWrite(this.sessionFile, JSON.stringify({ pid: child.pid, settings: s, startedAt: this.startedAt }));
+      if (this.child !== child) throw new AppError('Server exited during startup. Check the server logs.', 502);
     }
     this.logs.add(`Managed process started (PID ${child.pid}). This is not confirmation that the game is ready to join.`);
     return this.status();
@@ -138,6 +175,7 @@ export class ProcessManager {
       forceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* The exit listener handles an already-finished process. */ } }, 3000);
       timeout = setTimeout(() => { cleanup(); this.state = 'running'; reject(new AppError('Server did not exit. Check its PID in Task Manager; no other processes were targeted.', 500)); }, 6500);
     });
+    await this.logDrain;
     return this.status();
   }
   async restart(settings) {
@@ -162,20 +200,24 @@ export class ProcessManager {
       if (Date.now() - this.lastJoin < 10000) throw new AppError('A game launch was just requested. Allow it to open before trying again.', 429);
       if (this.demo) { this.logs.add('DEMO Join clicked. A real session would launch Arma 3; nothing was executed.'); this.lastJoin = Date.now(); return { message: 'Demo only: no game was launched.' }; }
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
+      const processes = await armaProcesses();
+      if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Direct Connect in the existing game, or close it before pressing Join.', 409);
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'server')) if (!(await isDirectory(m.path))) throw new AppError(`Game mod folder not found: ${m.path}`);
-      const args = clientArgs(s, connection);
+      const { exe, args } = gameLaunch(s, connection);
+      if (!(await isFile(exe))) throw new AppError('Arma3BattlEye.exe is missing from the game folder. Verify Arma 3 in Steam before joining a BattlEye session.');
       if (args.join(' ').length > 28000) throw new AppError('Game arguments exceed the safe Windows command-line length. Reduce mod paths.');
-      const child = spawn(s.gameExe, args, { cwd: path.dirname(s.gameExe), shell: false, detached: true, stdio: 'ignore' });
+      const child = spawn(exe, args, { cwd: path.dirname(s.gameExe), shell: false, detached: true, stdio: 'ignore' });
       child.on('error', error => this.logs.add(`Game launch error: ${error.message}`));
       try { await once(child, 'spawn'); } catch (error) { throw new AppError(`Could not launch Arma 3: ${error.message}`); }
       child.unref(); this.lastJoin = Date.now();
-      this.logs.add(`Game launch dispatched: ${displayCommand(s.gameExe, args)}. Close an already-running game before using Join.`);
-      if (s.battleye) this.logs.add('BattlEye is enabled on the server. If the game asks to restart, launch through the official Arma launcher with BattlEye enabled and use Direct Connect.');
+      this.logs.add(`Game launch dispatched: ${displayCommand(exe, args)}.`);
+      if (s.battleye) this.logs.add('Game launched through the official BattlEye bootstrap. Allow its update check to finish.');
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
   }
-  async close() {
+  async close({ leaveRunning = false } = {}) {
     while (this.busy) await sleep(50);
-    if (this.child) await this.stop();
+    if (this.child && (!leaveRunning || this.demo)) await this.stop();
     clearInterval(this.tailTimer);
+    clearInterval(this.logTimer);
   }
 }

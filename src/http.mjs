@@ -32,6 +32,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   const store = await Store.open(dir);
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, demo });
+  await manager.restore();
   const monitor = new LiveMonitor(manager, logs);
   const token = randomBytes(32).toString('hex');
   let closing = false; let actualPort; let closePromise;
@@ -129,13 +130,13 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   actualPort = server.address().port;
   logs.add(demo ? 'Local Host dashboard started in DEMO mode. No game is running.' : 'Local Host dashboard started. Configure and save installation paths before hosting.');
-  async function close() {
+  async function close(options) {
     if (closePromise) return closePromise;
     closing = true;
     closePromise = (async () => {
       monitor.close();
-      await manager.close();
-      await new Promise((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeIdleConnections(); });
+      await manager.close(options);
+      await new Promise((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections(); });
     })();
     return closePromise;
   }

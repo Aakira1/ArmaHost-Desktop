@@ -39,13 +39,19 @@ export class LogBook {
   text() { return this.entries.map(e => `${e.time} [${e.source}] ${e.message}`).join('\n'); }
 }
 export class RptTail {
-  constructor(dir, logs, since) { this.dir = dir; this.logs = logs; this.since = since; this.files = new Map(); this.busy = false; }
-  async poll() {
+  constructor(dir, logs, since, extension = /\.rpt$/i, source = 'rpt') { this.dir = dir; this.logs = logs; this.since = since; this.files = new Map(); this.busy = false; this.extension = extension; this.source = source; }
+  poll() {
+    if (this.pending) return this.pending;
+    const task = this.read(); this.pending = task;
+    void task.finally(() => { if (this.pending === task) this.pending = null; });
+    return task;
+  }
+  async read() {
     if (this.busy) return;
     this.busy = true;
     try {
       const entries = await readdir(this.dir, { withFileTypes: true });
-      for (const entry of entries.filter(e => e.isFile() && /\.rpt$/i.test(e.name)).slice(-20)) {
+      for (const entry of entries.filter(e => e.isFile() && this.extension.test(e.name)).slice(-20)) {
         const file = path.join(this.dir, entry.name);
         const info = await stat(file);
         if (info.mtimeMs < this.since) continue;
@@ -63,7 +69,7 @@ export class RptTail {
           const text = cursor.partial + cursor.decoder.write(buffer.subarray(0, bytesRead));
           const lines = text.split(/\r?\n/);
           cursor.partial = lines.pop().slice(-8192);
-          for (const line of lines) this.logs.add(line, 'rpt');
+          for (const line of lines) this.logs.add(line, this.source);
         } finally { await fd.close(); }
       }
     } catch (error) {

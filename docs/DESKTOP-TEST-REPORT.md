@@ -1,5 +1,12 @@
 # Desktop verification — 30 September 2026
 
+- Version 1.3.1: 42 tests passed, one platform-specific skip, zero failures.
+- Source Electron smoke passed updater controls, renderer crash recovery and preservation of the same demo server PID, plus existing Host/Join/network/live UI checks.
+- Live Windows lifecycle test: temporary dedicated server on UDP 24302 survived forced termination of its manager. A new manager verified the executable/configuration, adopted the PID and stopped it successfully.
+- Launcher log showed repeated Steam Workshop subscription/connection errors. The new Join path uses the documented BattlEye bootstrap. An actual successful game join and resolution of the user's game crash remain unverified.
+- Private GitHub updater fixture verifies SHA-256/size and ensures credentials are not forwarded to download storage.
+- Packaged 1.3.1 desktop smoke passed all checks, including renderer crash recovery and server preservation, and exited successfully. Orphaned renderer HTTP connections are closed during desktop shutdown.
+
 - Current 1.3.0 tests: 36 passed, one platform-specific skip, zero failures.
 - Review regression verifies that closed RCon clients cancel queued messages rather than reconnecting to a replacement server.
 - RCon protocol fixture verifies authentication, CRC32, out-of-order multipart replies, event acknowledgement, timeout and login rejection.
