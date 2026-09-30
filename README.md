@@ -30,3 +30,7 @@ npm test runs the backend tests. npm run smoke launches the real desktop UI, ver
 The executables are unsigned. Live Arma 3 hosting requires the game and dedicated server installations and has not been verified by the demo test. Closing the manager terminates its owned server; save mission progress first. Passwords remain in local settings in plain text, matching the original utility.
 
 Original documentation: docs/LEGACY-README.md. Desktop implementation: desktop/main.mjs and desktop/preload.cjs.
+
+## License
+
+ArmaHost Desktop is licensed under the [MIT License](LICENSE). Original contributor notices are preserved. Arma 3, Steam and BattlEye remain the property of their respective owners.
