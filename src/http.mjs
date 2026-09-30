@@ -8,6 +8,7 @@ import { LogBook } from './logs.mjs';
 import { ProcessManager } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics } from './discovery.mjs';
 import { hostingInfo } from './network.mjs';
+import { LiveMonitor } from './live-monitor.mjs';
 
 const ASSETS = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -31,18 +32,19 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   const store = await Store.open(dir);
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, demo });
+  const monitor = new LiveMonitor(manager, logs);
   const token = randomBytes(32).toString('hex');
   let closing = false; let actualPort; let closePromise;
   const refreshSecrets = () => {
     const state = store.snapshot();
-    logs.setSecrets([state.settings.password, state.settings.adminPassword, ...state.presets.flatMap(p => [p.settings.password, p.settings.adminPassword])]);
+    logs.setSecrets([state.settings.password, state.settings.adminPassword, state.settings.rconPassword, state.settings.remotePassword, ...state.presets.flatMap(p => [p.settings.password, p.settings.adminPassword, p.settings.rconPassword, p.settings.remotePassword])]);
   };
   refreshSecrets();
   const state = () => {
     const snapshot = store.snapshot();
     return { revision: snapshot.revision, settings: snapshot.settings,
       presets: snapshot.presets.map(p => ({ id: p.id, name: p.name, createdAt: p.createdAt })),
-      status: manager.status(), demo, platform: process.platform, node: process.version,
+      status: manager.status(), live: monitor.snapshot(), network: hostingInfo(manager.child ? manager.activeSettings : snapshot.settings), demo, platform: process.platform, node: process.version,
       pendingRestart: Boolean(manager.child && JSON.stringify(manager.activeSettings) !== JSON.stringify(snapshot.settings)),
       paths: { data: dir, profiles: manager.profilesDir, config: manager.configFile } };
   };
@@ -67,6 +69,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         const route = `${req.method} ${url.pathname}`;
         if (route === 'GET /api/state') return send(200, state());
         if (route === 'GET /api/network') return send(200, hostingInfo(manager.child ? manager.activeSettings : store.snapshot().settings));
+        if (route === 'GET /api/live') return send(200, monitor.snapshot());
         if (route === 'GET /api/logs') {
           const after = Number(url.searchParams.get('after') || 0);
           if (!Number.isSafeInteger(after) || after < 0) throw new AppError('Invalid log cursor.');
@@ -83,7 +86,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         if (req.method !== 'POST') throw new AppError('API endpoint not found.', 404);
         const body = await jsonBody(req);
         if (route === 'POST /api/config') {
-          const settings = validateSettings(body.settings); logs.setSecrets([settings.password, settings.adminPassword]);
+          const settings = validateSettings(body.settings); logs.setSecrets([settings.password, settings.adminPassword, settings.rconPassword, settings.remotePassword]);
           await store.saveSettings(settings, body.revision); logs.add('Configuration saved. A running server keeps its active settings until restart.');
           return send(200, state());
         }
@@ -94,10 +97,13 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
         else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo));
+        else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
+        else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
         else if (route === 'POST /api/server/start') await manager.start(store.snapshot().settings);
         else if (route === 'POST /api/server/stop') await manager.stop();
         else if (route === 'POST /api/server/restart') await manager.restart(store.snapshot().settings);
         else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings));
+        else if (route === 'POST /api/game/join-remote') return send(200, await manager.joinRemote(store.snapshot().settings));
         else if (route === 'POST /api/quit') {
           send(200, { message: 'Stopping the managed server and closing Local Host.' });
           setTimeout(() => { void close().then(() => onQuit?.()).catch(error => console.error('Shutdown error:', error.message)); }, 80);
@@ -127,10 +133,11 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
     if (closePromise) return closePromise;
     closing = true;
     closePromise = (async () => {
+      monitor.close();
       await manager.close();
       await new Promise((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeIdleConnections(); });
     })();
     return closePromise;
   }
-  return { server, store, manager, logs, token, url: `http://127.0.0.1:${actualPort}`, close };
+  return { server, store, manager, monitor, logs, token, url: `http://127.0.0.1:${actualPort}`, close };
 }

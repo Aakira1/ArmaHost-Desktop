@@ -1,10 +1,10 @@
-# ArmaHost Desktop 1.2.0
+# ArmaHost Desktop 1.3.0
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
 
 ## Run
 
-Starlink hosting is available in Setup. See [Starlink setup](docs/STARLINK.md) for VPN setup, friend access, firewall configuration and Direct Connect instructions.
+Choose Host a server or Join a friend in Overview. Setup includes a Normal network / Starlink switch. Starlink direct hosting requires public IPv4 and router forwarding, with no VPN software needed. See [Network setup](docs/STARLINK.md) and [Live players and test messages](docs/LIVE-MONITORING.md).
 
 Open the installer or portable executable in dist. Packaged builds include their runtime; Node.js is not required. For source development, install Node.js 22+ and run npm ci, then npm start. npm run demo runs the harmless demo server.
 
@@ -18,6 +18,8 @@ Open the installer or portable executable in dist. Packaged builds include their
 - File menu and sidebar open the persistent data directory.
 - Loopback manager uses an available port automatically.
 - Sandboxed renderer, isolated preload and restricted desktop bridge.
+- Host/Join roles, normal LAN/internet hosting and direct Starlink hosting.
+- BattlEye RCon player names, slot IDs, ping, observed connection activity and an in-game test-message button.
 
 Settings and logs live under the Windows user profile, accessible through Open data folder. Live and demo data are separate. Existing browser settings are not automatically migrated; reconfigure paths in Setup. Existing missions, mods, presets, diagnostics, launch previews and server controls are retained.
 

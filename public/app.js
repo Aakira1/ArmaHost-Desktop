@@ -21,9 +21,9 @@ let logCursor = 0;
 let logEntries = [];
 let toastTimer;
 let presetSignature = '';
-const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp'];
-const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'starlink'];
-const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots']);
+const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword'];
+const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'starlink', 'starlinkVpn', 'rconEnabled'];
+const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
 const modKey = value => value.toLowerCase().replaceAll('\\', '/').replace(/\/$/, '');
@@ -60,7 +60,7 @@ function collectSettings() {
   const value = {};
   for (const key of inputKeys) value[key] = $(key).value;
   for (const key of flagKeys) value[key] = $(key).checked;
-  for (const key of ['port', 'maxPlayers', 'verifySignatures']) value[key] = Number($(key).value);
+  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort']) value[key] = Number($(key).value);
   value.mods = structuredClone(draftMods);
   value.modRoots = $('modRoots').value.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
   return value;
@@ -68,15 +68,18 @@ function collectSettings() {
 function populate(settings, revision) {
   for (const key of inputKeys) $(key).value = settings[key];
   for (const key of flagKeys) $(key).checked = settings[key];
-  for (const key of ['port', 'maxPlayers', 'verifySignatures']) $(key).value = settings[key];
+  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort']) $(key).value = settings[key];
   $('modRoots').value = settings.modRoots.join('\n');
   draftMods = structuredClone(settings.mods); editRevision = revision; renderMods();
+  renderNetworkDraft();
 }
 function duration(seconds) { return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':'); }
 function updateControls() {
   const running = state?.status.state === 'running'; const transitioning = busy || Boolean(state?.status.busy) || shuttingDown;
   $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning;
   for (const id of ['join-game', 'restart-server', 'stop-server']) $(id).disabled = !running || transitioning;
+  $('join-remote').disabled = !state || transitioning;
+  if (state?.live) renderLive(state.live);
 }
 function applyState(next, hydrate = false) {
   if (state && next.revision < state.revision) return; // A slow poll must not undo a newer save.
@@ -85,8 +88,8 @@ function applyState(next, hydrate = false) {
   const s = next.status.active || next.settings;
   $('hero-name').textContent = s.serverName;
   $('hero-mission').textContent = s.mission || 'Mission selection opens in game.';
-  $('hero-address').textContent = `${s.starlink ? s.vpnIp : '127.0.0.1'}:${s.port}`;
-  $('hero-network').textContent = s.starlink ? 'Starlink · private VPN hosting' : s.lan ? 'LAN game access enabled' : 'This PC only';
+  $('hero-address').textContent = next.network?.address || `127.0.0.1:${s.port}`;
+  $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : s.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
   $('server-status').textContent = (next.demo ? 'DEMO · ' : '') + next.status.state.toUpperCase();
   $('server-status').classList.toggle('running', next.status.state === 'running');
   $('metric-pid').textContent = next.status.pid || '—';
@@ -105,6 +108,20 @@ function applyState(next, hydrate = false) {
   const signature = JSON.stringify(next.presets);
   if (signature !== presetSignature) { presetSignature = signature; renderPresets(); }
   updateControls();
+  renderLive(next.live);
+}
+function renderLive(live) {
+  if (!live) return;
+  const labels = { stopped: 'SERVER STOPPED', disabled: 'NOT CONFIGURED', connecting: 'WAITING FOR RCON', connected: 'RCON CONNECTED', disconnected: 'RCON DISCONNECTED', demo: 'DEMO · SIMULATED' };
+  $('live-status').textContent = labels[live.status] || 'NOT CHECKED';
+  $('live-status').classList.toggle('running', live.status === 'connected');
+  const checked = live.checkedAt ? new Date(live.checkedAt).toLocaleTimeString() : 'not checked yet';
+  $('live-note').textContent = live.error || (live.status === 'disabled' ? 'Enable monitoring in Setup, save and restart the server.' : live.demo ? 'Demo only: no real RCon connection or players. Controls simulate a test message.' : `Last successful player check: ${checked}. Player lists refresh every 5 seconds. Connection events are observed while this app is running.`);
+  const allowed = !['stopped', 'disabled'].includes(live.status) && !busy;
+  $('check-live').disabled = !allowed;
+  $('send-live').disabled = !allowed;
+  $('live-players').innerHTML = live.players.length ? `<table class="players-table"><thead><tr><th>Player</th><th>Slot ID</th><th>Ping</th></tr></thead><tbody>${live.players.map(p => `<tr><td>${escapeText(p.name)}</td><td>${p.id}</td><td>${p.ping} ms</td></tr>`).join('')}</tbody></table>${live.status === 'disconnected' ? '<p class="help-text">Last known players — current connection unavailable.</p>' : ''}` : `<p class="help-text">${live.status === 'connected' ? 'Server responded. No players are currently connected.' : live.demo ? 'Demo mode does not invent player connections.' : 'No confirmed player list yet.'}</p>`;
+  $('live-events').innerHTML = live.events.length ? live.events.slice(-30).reverse().map(e => `<p>${escapeText(new Date(e.time).toLocaleTimeString())} · ${escapeText(e.message)}</p>`).join('') : '<p class="muted">No connection activity recorded yet.</p>';
 }
 async function refreshPreview() {
   const value = await api('/api/preview');
@@ -151,7 +168,20 @@ onButton('restart-server', async () => {
   if (dirty) await save(true); applyState(await api('/api/server/restart', {})); await refreshPreview(); notify('Server process restarted. Check the log before joining.');
 });
 onButton('join-game', async () => { if (dirty) await save(true); const result = await api('/api/game/join', {}); notify(result.message); });
+onButton('join-remote', async () => { if (dirty) await save(true); const result = await api('/api/game/join-remote', {}); notify(result.message); });
+function sessionRole(join) {
+  $('join-panel').hidden = !join; $('host-panel').hidden = join;
+  for (const [id, active] of [['role-host', !join], ['role-join', join]]) {
+    $(id).classList.toggle('primary', active); $(id).classList.toggle('subtle', !active); $(id).setAttribute('aria-pressed', String(active));
+  }
+  if (join && state?.status.pid) notify('Your own server is still running. Switching to Join does not stop it.');
+}
+$('role-host').addEventListener('click', () => sessionRole(false));
+$('role-join').addEventListener('click', () => sessionRole(true));
 onButton('copy-address', async () => { await navigator.clipboard.writeText($('hero-address').textContent); notify('Local server address copied.'); });
+onButton('check-live', async () => { const result = await api('/api/live/check', {}); state.live = result; renderLive(result); notify(result.status === 'connected' ? `Server responded: ${result.players.length} player(s) connected.` : result.status === 'demo' ? 'Demo check only: no real server connection.' : result.error || 'Server connection is unavailable.', result.status === 'disconnected'); });
+onButton('send-live', async () => { const result = await api('/api/live/message', { message: $('live-message').value }); notify(result.message); });
+onButton('generate-rcon-password', async () => { $('rconPassword').value = Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join(''); setDirty(); notify('RCon password generated. Save and restart to apply it.'); });
 onButton('quit', async () => {
   if (!await confirmAction('Quit Local Host?', 'The managed server will be terminated without an in-game save. Unsaved dashboard edits are discarded. A separately launched game is left running.', 'Quit & stop server')) return;
   await api('/api/quit', {}); shuttingDown = true; setDirty(false); $('offline-banner').hidden = false; $('connection').textContent = 'Stopped'; notify('Local Host is closing. This tab can be closed.');
@@ -283,10 +313,26 @@ async function poll() {
 }
 async function refreshHostingDetails() {
   const result = await api('/api/network');
-  $('vpn-firewall').textContent = result.firewall || 'Save your VPN hosting settings and server executable to generate the firewall command.';
-  $('vpn-note').textContent = (result.enabled ? (result.assigned ? `Saved VPN address ${result.address} is present on this PC. ` : 'The saved VPN address is not present. Connect your VPN and detect its address again. ') : 'Starlink hosting is not enabled in the saved configuration. ') + (state?.status.pid ? 'Details reflect the running server. ' : '') + result.note;
+  $('vpn-firewall').textContent = result.firewall || 'Save a server executable and enable network hosting to generate the firewall command.';
+  $('router-target').textContent = `Game ports: UDP ${result.forwardPorts}. Router forwarding target (this PC): ${result.lanAddresses.map(e => `${e.name}: ${e.address}`).join(' · ') || 'No LAN address detected'}.`;
+  const description = result.scope === 'vpn' ? (result.assigned ? `VPN address ${result.address} is assigned. ` : 'Saved VPN address is not present. Connect the VPN and detect again. ') : result.scope === 'internet' ? `Share address: ${result.address}. Public address is supplied by you; external reachability is unverified. ` : result.scope === 'lan' ? `LAN address: ${result.address || 'not found'}. Enter your public IPv4 to share with internet friends. ` : 'This PC only. Enable incoming game connections for friends. ';
+  $('vpn-note').textContent = description + (state?.status.pid ? 'Details reflect the running server. ' : '') + result.note;
   return result;
 }
+function renderNetworkDraft() {
+  const starlink = $('starlink').checked;
+  const vpn = starlink && $('starlinkVpn').checked;
+  $('network-kind').textContent = starlink ? 'STARLINK' : 'NORMAL NETWORK';
+  $('network-description').textContent = starlink ? vpn ? 'Starlink hosting through an existing VPN.' : 'Direct Starlink hosting with public IPv4. No VPN software required.' : 'Normal network: host on your LAN or directly over the internet.';
+  $('direct-network').hidden = vpn;
+  $('normal-network-steps').hidden = starlink;
+  $('starlink-network-steps').hidden = !starlink;
+  $('vpn-options').hidden = !starlink;
+  $('vpn-fields').hidden = !vpn;
+  $('lan').disabled = starlink;
+  if (starlink) $('lan').checked = true;
+}
+for (const id of ['starlink', 'starlinkVpn']) $(id).addEventListener('change', renderNetworkDraft);
 onButton('detect-vpn', async () => {
   const result = await refreshHostingDetails();
   const select = $('vpn-addresses'); select.replaceChildren(new Option('Choose a detected adapter', ''));
@@ -299,8 +345,8 @@ onButton('network-details', refreshHostingDetails);
 onButton('copy-vpn', async () => {
   if (dirty) throw new Error('Save your changes first. Restart a running server to apply its new network settings.');
   const result = await refreshHostingDetails();
-  if (!result.enabled || !result.assigned) throw new Error('Enable and save Starlink hosting with a connected VPN address first.');
-  await navigator.clipboard.writeText(`Arma 3 private session\nDirect Connect: ${result.address}\nInstall Tailscale and obtain access to the host device first.\nUse matching mission mods. Ask the host for the join password separately.`);
+  if (!result.enabled || !result.assigned || !result.address) throw new Error('Enable network hosting and save its connection settings first.');
+  await navigator.clipboard.writeText(`Arma 3 session\nDirect Connect: ${result.address}\n${result.scope === 'vpn' ? 'Connect to the host through the same VPN first.' : result.scope === 'lan' ? 'LAN only: join from the same local network. For internet play, ask the host for its public IPv4.' : 'Internet: the host must forward its game ports through its router.'}\nUse matching mission mods. Ask the host for the join password separately.`);
   notify('Friend connection details copied. Password is not included.');
 });
 onButton('vpn-guide', async () => {

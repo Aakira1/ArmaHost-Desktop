@@ -2,7 +2,7 @@ if (window.armaDesktop) {
   document.body.classList.add('desktop');
   document.title = 'ArmaHost Desktop';
   document.querySelector('.brand > span:last-child').firstChild.textContent = 'ARMAHOST';
-  document.querySelector('.sidebar-bottom > small').textContent = 'DESKTOP EDITION · V1.2.0';
+  document.querySelector('.sidebar-bottom > small').textContent = 'DESKTOP EDITION · V1.3.0';
   document.querySelector('.form-footer > .muted').textContent = 'Settings are stored in your Windows user profile.';
   document.querySelector('#offline-banner span').textContent = 'The local manager is unavailable. Close and reopen ArmaHost.';
   for (const [id, kind, title] of [['gameExe', 'game', 'Browse executable'], ['serverExe', 'server', 'Browse executable'], ['new-mod-path', 'mod', 'Browse folder'], ['modRoots', 'root', 'Add scan folder']]) {

@@ -7,7 +7,7 @@ import { createApp } from '../src/http.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const demo = process.argv.includes('--demo');
 const smoke = process.argv.includes('--smoke-test');
-let window, backend, boundsFile;
+let window, backend, boundsFile, smokeOriginal;
 let quitting = false, closePrompt = false, dirty = false;
 app.setName('ArmaHost Desktop');
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -15,7 +15,10 @@ else {
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
   app.on('before-quit', event => { if (backend && !quitting) { event.preventDefault(); void requestClose(); } });
   app.on('window-all-closed', () => app.quit());
-  app.whenReady().then(boot).catch(error => { dialog.showErrorBox('ArmaHost could not start', error.message); quitting = true; app.quit(); });
+  app.whenReady().then(boot).catch(async error => {
+    if (smoke) { console.error(error.message); if (smokeOriginal && backend) await backend.store.saveSettings(smokeOriginal, backend.store.snapshot().revision); await backend?.close(); app.exit(1); return; }
+    dialog.showErrorBox('ArmaHost could not start', error.message); quitting = true; app.quit();
+  });
 }
 async function finishQuit() {
   if (quitting) return;
@@ -75,11 +78,16 @@ async function boot() {
     { label: 'File', submenu: [{ label: 'Open data folder', click: () => { void shell.openPath(dir); } }, { type: 'separator' }, { label: 'Quit', accelerator: 'Alt+F4', click: () => { void requestClose(); } }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.2.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
+    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.3.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
   ]));
   window.once('ready-to-show', () => window.show());
   await window.loadURL(backend.url + '/#token=' + backend.token);
   if (smoke) {
+    const original = backend.store.snapshot();
+    smokeOriginal = original.settings;
+    const smokeSettings = { ...original.settings, rconEnabled: true, rconPassword: 'smoke-rcon-test-password', remoteHost: '8.8.8.8', starlink: false, starlinkVpn: false, lan: false, publicIp: '' };
+    await backend.store.saveSettings(smokeSettings, original.revision);
+    await window.loadURL(backend.url + '/#token=' + backend.token);
     await new Promise(resolve => setTimeout(resolve, 1800));
     const result = await window.webContents.executeJavaScript("({ bridge: !!window.armaDesktop, connected: document.getElementById('connection').textContent, pickers: document.querySelectorAll('.native-browse').length })");
     if (!result.bridge || !result.connected.includes('connected') || result.pickers !== 4) throw new Error('Desktop smoke check failed: ' + JSON.stringify(result));
@@ -87,16 +95,32 @@ async function boot() {
     await new Promise(resolve => setTimeout(resolve, 600));
     if (!backend.manager.child) throw new Error('Demo server exited unexpectedly.');
     result.demoStarted = backend.manager.status().state;
+    await window.webContents.executeJavaScript("document.getElementById('check-live').disabled=false; document.getElementById('check-live').click();");
+    await new Promise(resolve => setTimeout(resolve, 350));
+    result.liveCheck = await window.webContents.executeJavaScript("document.getElementById('live-status').textContent");
+    if (!result.liveCheck.includes('SIMULATED')) throw new Error('Live check UI did not report demo mode: ' + result.liveCheck + '. Monitor: ' + JSON.stringify(backend.monitor.snapshot()));
+    await window.webContents.executeJavaScript("document.getElementById('send-live').click();");
+    await new Promise(resolve => setTimeout(resolve, 350));
+    result.testMessage = await window.webContents.executeJavaScript("document.getElementById('toast').textContent.includes('no in-game message')");
+    if (!result.testMessage) throw new Error('Test message UI did not respond.');
     await backend.manager.stop();
     result.demoStopped = !backend.manager.child;
+    await window.webContents.executeJavaScript("document.getElementById('role-join').click(); document.getElementById('join-remote').click();");
+    await new Promise(resolve => setTimeout(resolve, 350));
+    result.joinWithoutServer = await window.webContents.executeJavaScript("!document.getElementById('join-panel').hidden && document.getElementById('toast').textContent.includes('no game was launched')");
+    if (!result.joinWithoutServer) throw new Error('Join without server did not respond.');
     result.starlinkControls = await window.webContents.executeJavaScript("!!document.getElementById('starlink') && !!document.getElementById('vpnIp') && !!document.getElementById('detect-vpn')");
     if (!result.starlinkControls) throw new Error('Starlink controls missing.');
-    await window.webContents.executeJavaScript("document.querySelector('[data-page=setup]').click(); document.getElementById('detect-vpn').click();");
+    await window.webContents.executeJavaScript("document.querySelector('[data-page=setup]').click(); document.getElementById('network-details').click(); document.getElementById('starlink').click();");
     await new Promise(resolve => setTimeout(resolve, 400));
     result.networkPanel = await window.webContents.executeJavaScript("document.getElementById('vpn-note').textContent.includes('local only')");
     if (!result.networkPanel) throw new Error('Network panel API did not respond.');
+    result.directStarlink = await window.webContents.executeJavaScript("!document.getElementById('starlink-network-steps').hidden && !document.getElementById('direct-network').hidden && document.getElementById('network-kind').textContent === 'STARLINK'");
+    if (!result.directStarlink) throw new Error('Direct Starlink switch did not update.');
+    await mkdir(path.join(root, 'docs', 'screenshots'), { recursive: true });
     await writeFile(path.join(root, 'desktop-smoke.json'), JSON.stringify(result, null, 2));
     await writeFile(path.join(root, 'docs', 'screenshots', 'desktop.png'), (await window.webContents.capturePage()).toPNG());
+    await backend.store.saveSettings(original.settings, backend.store.snapshot().revision);
     await finishQuit();
   }
 }

@@ -112,11 +112,13 @@ export async function diagnostics(s, dir, demo) {
   if (s.mods.some(m => m.enabled) && s.verifySignatures) add('Mod signing keys', false, 'Copy the trusted mods’ .bikey files into the server keys folder. This app does not install keys or resolve dependencies.', true);
   if (s.battleye) add('BattlEye client', false, 'Join launches the game executable directly. If BattlEye asks to restart, use the official Arma launcher with BattlEye enabled and Direct Connect to the shown address.', true);
   if (s.lan) add('LAN access', false, 'Game sockets can accept network traffic. Configure Windows Firewall deliberately. Management remains localhost-only; no ports are opened automatically.', true);
-  if (s.starlink) {
+  if (s.starlink && s.starlinkVpn) {
     const { hostingInfo } = await import('./network.mjs');
     const info = hostingInfo(s);
     add('Starlink VPN address', info.assigned, info.assigned ? `VPN bind address ${info.address} is present on this PC. Peer access is not verified.` : 'Connect your VPN and detect its address again.', demo);
     add('Starlink peer access', false, 'Friends need Tailscale access to this PC and matching mods. Allow game UDP traffic through Windows Firewall and your VPN access policy.', true);
   }
+  if ((s.lan || s.starlink) && !(s.starlink && s.starlinkVpn)) add(s.starlink ? 'Starlink direct hosting' : 'Normal network hosting', false, `Game UDP ${s.port}-${s.port + 4}. Forward these ports to this PC for internet play and allow the server through Windows Firewall. Public IPv4 ${s.publicIp || 'not supplied'}; external access is unverified.`, true);
+  if (s.rconEnabled) add('Live player monitoring', s.battleye, `BattlEye RCon uses localhost UDP ${s.rconPort}. Save and restart to apply settings; use Overview to check its response.`, true);
   return { checks, canStart: demo || (process.platform === 'win32' && await isFile(s.serverExe)) };
 }

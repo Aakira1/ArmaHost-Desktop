@@ -1,14 +1,14 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, copyFile, readdir, unlink } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import dgram from 'node:dgram';
 import path from 'node:path';
-import { AppError, validateSettings, renderConfig, serverArgs, clientArgs, displayCommand } from './config.mjs';
+import { AppError, validateSettings, renderConfig, renderBattleye, serverArgs, clientArgs, displayCommand } from './config.mjs';
 import { atomicWrite } from './store.mjs';
 import { isFile, isDirectory } from './discovery.mjs';
 import { RptTail } from './logs.mjs';
-import { hostingInfo } from './network.mjs';
+import { hostingInfo, bindAddress } from './network.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function checkUdpPorts(s) {
@@ -18,7 +18,7 @@ async function checkUdpPorts(s) {
       const socket = dgram.createSocket('udp4'); sockets.push(socket);
       await new Promise((resolve, reject) => {
         socket.once('error', () => reject(new AppError(`UDP ${s.port + n} is unavailable. Stop the other server or choose another game port.`, 409)));
-        socket.bind(s.port + n, s.starlink ? s.vpnIp : s.lan ? '0.0.0.0' : '127.0.0.1', resolve);
+        socket.bind(s.port + n, bindAddress(s), resolve);
       });
     }
   } finally { for (const socket of sockets) { try { socket.close(); } catch { /* Already closed/unbound. */ } } }
@@ -30,6 +30,7 @@ export class ProcessManager {
     this.activeSettings = null; this.lastExit = null; this.lastError = null; this.lastJoin = 0;
     this.configFile = path.join(dir, 'runtime', 'server.cfg');
     this.profilesDir = path.join(dir, 'profiles'); this.tailTimer = null;
+    this.battleyeDir = path.join(dir, 'runtime', 'BattlEye');
   }
   status() {
     const s = this.child ? this.activeSettings : null;
@@ -37,7 +38,7 @@ export class ProcessManager {
       state: this.state, busy: this.busy, demo: this.demo, pid: this.child?.pid || null,
       startedAt: this.startedAt, uptimeSeconds: this.child && this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0,
       lastExit: this.lastExit, lastError: this.lastError,
-      active: s ? { serverName: s.serverName, port: s.port, mission: s.mission, lan: s.lan, starlink: s.starlink, vpnIp: s.vpnIp,
+      active: s ? { serverName: s.serverName, port: s.port, mission: s.mission, lan: s.lan, starlink: s.starlink, vpnIp: s.vpnIp, starlinkVpn: s.starlinkVpn, publicIp: s.publicIp,
         maxPlayers: s.maxPlayers, mods: s.mods.filter(m => m.enabled).length } : null,
       readiness: this.demo ? 'Demo only — no game server.' : 'Process state only; game readiness is not queried. Check the RPT log and in-game server browser.'
     };
@@ -53,9 +54,9 @@ export class ProcessManager {
     if (this.child) throw new AppError('The managed server is already running.', 409);
     const s = validateSettings(settings);
     if (!this.demo && process.platform !== 'win32') throw new AppError('Live game/server launching requires Windows. Use --demo on this operating system.');
-    this.logs.setSecrets([s.password, s.adminPassword]);
+    this.logs.setSecrets([s.password, s.adminPassword, s.rconPassword]);
     if (!this.demo) {
-      if (s.starlink && !hostingInfo(s).assigned) throw new AppError('The saved VPN address is not assigned to this PC. Connect your VPN and detect its address again before hosting.');
+      if (s.starlink && s.starlinkVpn && !hostingInfo(s).assigned) throw new AppError('The saved VPN address is not assigned to this PC. Connect your VPN and detect its address again before hosting.');
       if (!(await isFile(s.serverExe))) throw new AppError('Server executable not found. Configure arma3server_x64.exe in Setup and save.');
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'client')) {
         if (!(await isDirectory(m.path))) throw new AppError(`Enabled mod folder not found: ${m.path}`);
@@ -64,6 +65,22 @@ export class ProcessManager {
     }
     await mkdir(path.dirname(this.configFile), { recursive: true, mode: 0o700 });
     await mkdir(this.profilesDir, { recursive: true, mode: 0o700 });
+    if (s.rconEnabled) {
+      await mkdir(this.battleyeDir, { recursive: true, mode: 0o700 });
+      if (!this.demo) {
+        const dll = /_x64\.exe$/i.test(s.serverExe) ? 'BEServer_x64.dll' : 'BEServer.dll';
+        const source = path.join(path.dirname(s.serverExe), 'BattlEye', dll);
+        if (!(await isFile(source))) throw new AppError(`BattlEye server library missing: ${source}. Verify the dedicated server installation in Steam before enabling live monitoring.`);
+        await copyFile(source, path.join(this.battleyeDir, dll));
+        const socket = dgram.createSocket('udp4');
+        try { await new Promise((resolve, reject) => { socket.once('error', () => reject(new AppError('RCon UDP port is unavailable. Choose another RCon port in Setup.', 409))); socket.bind(s.rconPort, '127.0.0.1', resolve); }); }
+        finally { try { socket.close(); } catch {} }
+      }
+      // Only remove renamed active configs in our own managed runtime folder.
+      for (const name of await readdir(this.battleyeDir)) if (/^BEServer(?:_x64)?_active_[a-z0-9]+\.cfg$/i.test(name)) await unlink(path.join(this.battleyeDir, name));
+      await atomicWrite(path.join(this.battleyeDir, 'BEServer_x64.cfg'), renderBattleye(s));
+      await atomicWrite(path.join(this.battleyeDir, 'BEServer.cfg'), renderBattleye(s));
+    }
     await atomicWrite(this.configFile, renderConfig(s));
     this.state = 'starting'; this.lastError = null; this.lastExit = null;
     const argv = serverArgs(s, this);
@@ -130,11 +147,23 @@ export class ProcessManager {
     return this.perform('launching the game', async () => {
       if (!this.child) throw new AppError('Start the managed server first.', 409);
       const s = { ...structuredClone(this.activeSettings), gameExe: savedSettings.gameExe };
+      return this.launchGame(s);
+    });
+  }
+  async joinRemote(settings) {
+    return this.perform('launching the game', async () => {
+      const s = validateSettings(settings);
+      if (!s.remoteHost) throw new AppError('Enter your friend’s server address first.');
+      this.logs.setSecrets([s.remotePassword]);
+      return this.launchGame(s, { host: s.remoteHost, port: s.remotePort, password: s.remotePassword });
+    });
+  }
+  async launchGame(s, connection) {
       if (Date.now() - this.lastJoin < 10000) throw new AppError('A game launch was just requested. Allow it to open before trying again.', 429);
       if (this.demo) { this.logs.add('DEMO Join clicked. A real session would launch Arma 3; nothing was executed.'); this.lastJoin = Date.now(); return { message: 'Demo only: no game was launched.' }; }
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'server')) if (!(await isDirectory(m.path))) throw new AppError(`Game mod folder not found: ${m.path}`);
-      const args = clientArgs(s);
+      const args = clientArgs(s, connection);
       if (args.join(' ').length > 28000) throw new AppError('Game arguments exceed the safe Windows command-line length. Reduce mod paths.');
       const child = spawn(s.gameExe, args, { cwd: path.dirname(s.gameExe), shell: false, detached: true, stdio: 'ignore' });
       child.on('error', error => this.logs.add(`Game launch error: ${error.message}`));
@@ -143,7 +172,6 @@ export class ProcessManager {
       this.logs.add(`Game launch dispatched: ${displayCommand(s.gameExe, args)}. Close an already-running game before using Join.`);
       if (s.battleye) this.logs.add('BattlEye is enabled on the server. If the game asks to restart, launch through the official Arma launcher with BattlEye enabled and use Direct Connect.');
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
-    });
   }
   async close() {
     while (this.busy) await sleep(50);

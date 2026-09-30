@@ -1,6 +1,12 @@
 # Desktop verification — 30 September 2026
 
-- Backend tests in 1.2.0: 23 passed, one platform-specific skip, zero failures.
+- Current 1.3.0 tests: 36 passed, one platform-specific skip, zero failures.
+- Review regression verifies that closed RCon clients cancel queued messages rather than reconnecting to a replacement server.
+- RCon protocol fixture verifies authentication, CRC32, out-of-order multipart replies, event acknowledgement, timeout and login rejection.
+- Monitor/API tests verify player observations, stale-list handling, stop races, local generated config, authentication, message validation, rate limiting and honest demo labels.
+- Join mode validates host/port, redacts passwords and works without a local server.
+- Source desktop smoke passed Host/Join, direct Starlink switch, live check and test-message UI in demo mode.
+- Packaged 1.3.0 executable passed those checks with an isolated test profile and exited successfully. Installer and portable builds completed.
 - Starlink tests cover VPN binding, address and password validation, adapter detection, private sharing details, scoped firewall commands, API authentication and active versus saved settings.
 - Desktop smoke also verifies Starlink controls and the network panel API response.
 - Packaged 1.2.0 executable passed the same smoke check and exited. Windows x64 installer and portable builds completed.

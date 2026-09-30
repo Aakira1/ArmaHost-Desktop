@@ -18,3 +18,19 @@
 .hosting-steps { margin:20px 0; padding-left:22px; color:var(--muted); font-size:12px; line-height:1.8; }
 .hosting-steps li { margin-bottom:8px; }
 .hosting-command { white-space:pre-wrap; overflow-wrap:anywhere; margin-top:18px; padding:16px; background:#111911; border:1px solid var(--line); border-radius:8px; font:11px/1.7 Consolas,monospace; }
+.players-table { width:100%; border-collapse:collapse; margin:18px 0; font-size:12px; text-align:left; }
+.players-table th, .players-table td { border-bottom:1px solid var(--line); padding:12px 8px; }
+.players-table th { color:var(--muted); font-size:10px; letter-spacing:1px; }
+.live-message-row { display:flex; align-items:end; gap:16px; margin:20px 0; }
+.live-message-row label { flex:1; }
+@media(max-width:960px){.live-message-row {flex-direction:column;align-items:stretch;}}
+.network-switch { position:relative; display:flex; align-items:center; gap:16px; padding:18px 0; flex-direction:row; font-size:14px; }
+.network-switch input { position:absolute; left:130px; width:56px; height:30px; opacity:0; z-index:1; cursor:pointer; }
+.switch-track { width:56px; height:30px; background:#364332; border-radius:18px; position:relative; transition:background .2s; }
+.switch-track:after { content:''; position:absolute; width:22px; height:22px; left:4px; top:4px; border-radius:50%; background:#e2ecd4; transition:transform .2s; }
+.network-switch input:checked + .switch-track { background:#75964d; }
+.network-switch input:checked + .switch-track:after { transform:translateX(26px); }
+.network-switch input:focus-visible + .switch-track { outline:2px solid var(--accent); outline-offset:3px; }
+#vpn-options { margin:20px 0; }
+#direct-network h3 { margin-top:20px; }
+.session-role { display:flex; gap:10px; margin-bottom:22px; }

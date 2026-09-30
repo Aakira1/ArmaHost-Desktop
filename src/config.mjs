@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { usableAddress } from './network.mjs';
+import { usableAddress, publicAddress, bindAddress, gameAddress } from './network.mjs';
 
 export class AppError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -8,8 +8,9 @@ export function defaults() {
   return {
     gameExe: '', serverExe: '', serverName: 'Arma 3 Local Operations',
     port: 2302, maxPlayers: 16, password: '', adminPassword: '',
-    difficulty: 'Regular', mission: '', lan: false, battleye: true, starlink: false, vpnIp: '',
-    verifySignatures: 2, persistent: true, autoInit: false, mods: [], modRoots: []
+    difficulty: 'Regular', mission: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
+    verifySignatures: 2, persistent: true, autoInit: false, mods: [], modRoots: [],
+    rconEnabled: false, rconPort: 2307, rconPassword: '', remoteHost: '', remotePort: 2302, remotePassword: ''
   };
 }
 function text(value, label, max, allowEmpty = true) {
@@ -43,17 +44,24 @@ export function validateSettings(input) {
   const base = defaults();
   for (const key of Object.keys(input)) if (!Object.hasOwn(base, key)) throw new AppError(`Unknown setting: ${key}`);
   const s = { ...base, ...input };
+  // Preserve the VPN route in existing 1.2.0 Starlink configurations.
+  if (!Object.hasOwn(input, 'starlinkVpn') && input.starlink) s.starlinkVpn = true;
   s.gameExe = executable(s.gameExe, 'Game executable', ['arma3_x64.exe', 'arma3.exe']);
   s.serverExe = executable(s.serverExe, 'Server executable', ['arma3server_x64.exe', 'arma3server.exe']);
   s.serverName = text(s.serverName, 'Server name', 100, false).trim();
   s.password = text(s.password, 'Join password', 64);
   s.adminPassword = text(s.adminPassword, 'Admin password', 64);
+  s.remoteHost = text(s.remoteHost, 'Friend server address', 253).trim();
+  if (s.remoteHost && !/^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(s.remoteHost)) throw new AppError('Friend server address must be an IPv4 address or hostname, without a port or URL.');
+  if (s.remoteHost && /^[\d.]+$/.test(s.remoteHost) && !usableAddress(s.remoteHost) && s.remoteHost !== '127.0.0.1') throw new AppError('Friend server IPv4 address is invalid.');
+  if (!Number.isInteger(s.remotePort) || s.remotePort < 1024 || s.remotePort > 65535) throw new AppError('Friend game port must be from 1024 to 65535.');
+  s.remotePassword = text(s.remotePassword, 'Friend join password', 64);
   // Config language strings do not have JavaScript escape semantics. Keep user strings literal.
   if (/[\\]/.test(s.password + s.adminPassword + s.serverName)) throw new AppError('Names and passwords cannot contain backslashes.');
   for (const [key, min, max] of [['port', 1024, 65531], ['maxPlayers', 1, 128]]) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new AppError(`${key} must be a whole number from ${min} to ${max}.`);
   }
-  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'starlink']) {
+  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'starlink', 'starlinkVpn', 'rconEnabled']) {
     if (typeof s[key] !== 'boolean') throw new AppError(`${key} must be true or false.`);
   }
   if (![0, 2].includes(s.verifySignatures)) throw new AppError('Signature verification must be 0 or 2.');
@@ -66,8 +74,18 @@ export function validateSettings(input) {
   if (s.lan && !s.password.trim()) throw new AppError('LAN mode requires a non-empty join password.');
   s.vpnIp = text(s.vpnIp, 'VPN address', 15).trim();
   if (s.vpnIp && !usableAddress(s.vpnIp)) throw new AppError('VPN address must be a unicast IPv4 address, not localhost or a link-local address.');
-  if (s.starlink && !s.vpnIp) throw new AppError('Starlink hosting requires your VPN IPv4 address. Install and connect Tailscale, then detect its address.');
+  if (s.starlink && s.starlinkVpn && !s.vpnIp) throw new AppError('VPN hosting requires your VPN IPv4 address.');
   if (s.starlink && !s.password.trim()) throw new AppError('Starlink hosting requires a non-empty join password.');
+  s.publicIp = text(s.publicIp, 'Public IPv4 address', 15).trim();
+  if (s.publicIp && !publicAddress(s.publicIp)) throw new AppError('Enter a public IPv4 address. Private or CGNAT router addresses cannot be used for direct internet sharing.');
+  s.rconPassword = text(s.rconPassword, 'RCon password', 64);
+  if (s.rconPassword && !/^[\x21-\x7e]+$/.test(s.rconPassword)) throw new AppError('RCon password must use printable ASCII characters without spaces.');
+  if (!Number.isInteger(s.rconPort) || s.rconPort < 1024 || s.rconPort > 65535) throw new AppError('RCon port must be a whole number from 1024 to 65535.');
+  if (s.rconEnabled) {
+    if (!s.battleye) throw new AppError('Live player monitoring requires BattlEye enabled.');
+    if (s.rconPassword.length < 12) throw new AppError('RCon password must contain at least 12 characters.');
+    if (s.rconPort >= s.port && s.rconPort <= s.port + 4) throw new AppError('RCon port must be outside the five game UDP ports.');
+  }
   if (s.autoInit && !s.mission) throw new AppError('Auto-initialise requires a mission template.');
   if (s.autoInit && !s.persistent) throw new AppError('Auto-initialise requires persistent mode.');
   if (!Array.isArray(s.mods) || s.mods.length > 150) throw new AppError('Use at most 150 mod folders.');
@@ -109,13 +127,16 @@ function modArgs(s, client) {
   const server = s.mods.filter(m => m.enabled && m.scope === 'server').map(m => m.path);
   return [...(shared.length ? [`-mod=${shared.join(';')}`] : []), ...(!client && server.length ? [`-serverMod=${server.join(';')}`] : [])];
 }
-export function serverArgs(s, { configFile, profilesDir }) {
-  return [`-config=${configFile}`, `-profiles=${profilesDir}`, '-name=LocalHost', `-port=${s.port}`,
-    `-ip=${s.starlink ? s.vpnIp : s.lan ? '0.0.0.0' : '127.0.0.1'}`, ...(s.autoInit ? ['-autoInit'] : []), ...modArgs(s, false)];
+export function renderBattleye(s) {
+  return `RConPassword ${s.rconPassword}\r\nRConPort ${s.rconPort}\r\nRConIP 127.0.0.1\r\n`;
 }
-export function clientArgs(s) {
-  return ['-noSplash', '-skipIntro', `-connect=${s.starlink ? s.vpnIp : '127.0.0.1'}`, `-port=${s.port}`,
-    ...(s.password ? [`-password=${s.password}`] : []), ...modArgs(s, true)];
+export function serverArgs(s, { configFile, profilesDir, battleyeDir = path.join(profilesDir, 'BattlEye') }) {
+  return [`-config=${configFile}`, `-profiles=${profilesDir}`, '-name=LocalHost', `-port=${s.port}`,
+    `-ip=${bindAddress(s)}`, ...(s.rconEnabled ? [`-BEpath=${battleyeDir}`] : []), ...(s.autoInit ? ['-autoInit'] : []), ...modArgs(s, false)];
+}
+export function clientArgs(s, connection = { host: gameAddress(s), port: s.port, password: s.password }) {
+  return ['-noSplash', '-skipIntro', `-connect=${connection.host}`, `-port=${connection.port}`,
+    ...(connection.password ? [`-password=${connection.password}`] : []), ...modArgs(s, true)];
 }
 export function redactArgs(args) { return args.map(a => /^-password=/i.test(a) ? '-password=[REDACTED]' : a); }
 export function displayCommand(exe, args) { return [exe || '<configure executable>', ...redactArgs(args)].map(a => `"${a}"`).join(' '); }
