@@ -1,0 +1,10 @@
+ARMAHOST DESKTOP
+
+Open dist\ArmaHost Desktop Setup 1.2.0.exe to install, or the portable executable to run without installation.
+
+For source development: install Node.js 22+, then open Start.bat.
+Open Demo.bat to try the controls without an Arma installation.
+
+Use Setup to select game and dedicated server executables with the Browse buttons.
+Save configuration, then start the server from Overview.
+Read README.md for desktop features and verification details.
