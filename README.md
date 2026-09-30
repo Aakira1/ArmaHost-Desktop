@@ -6,7 +6,9 @@ Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project i
 
 Choose Host a server or Join a friend in Overview. Setup includes a Normal network / Starlink switch. Starlink direct hosting requires public IPv4 and router forwarding, with no VPN software needed. See [Network setup](docs/STARLINK.md) and [Live players and test messages](docs/LIVE-MONITORING.md).
 
-Open the installer or portable executable in dist. Packaged builds include their runtime; Node.js is not required. For source development, install Node.js 22+ and run npm ci, then npm start. npm run demo runs the harmless demo server.
+Download the installer or portable executable from [GitHub Releases](https://github.com/Aakira1/ArmaHost-Desktop/releases/latest). Open the Setup executable to install, or Portable to run without installation. Packaged builds include their runtime; Node.js is not required.
+
+The repository and source ZIP do not include `dist`. For source development, install Node.js 22+, run `npm ci`, then `npm start`. `npm run demo` runs the demo server; `npm run build` creates the installer and portable executable in `dist`.
 
 ## Desktop improvements
 

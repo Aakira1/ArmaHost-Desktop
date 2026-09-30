@@ -4,7 +4,7 @@ Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project i
 
 ## Run
 
-Open the installer or portable executable in dist. Packaged builds include their runtime; Node.js is not required. For source development, install Node.js 22+ and run npm ci, then npm start. npm run demo runs the harmless demo server.
+Download the installer or portable executable from [GitHub Releases](https://github.com/Aakira1/ArmaHost-Desktop/releases/latest). Packaged builds include their runtime; Node.js is not required. The source download does not include dist. For source development, install Node.js 22+ and run npm ci, then npm start. npm run demo runs the demo server; npm run build generates dist.
 
 ## Desktop improvements
 

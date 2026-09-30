@@ -1,6 +1,9 @@
 ARMAHOST DESKTOP
 
-Open dist\ArmaHost Desktop Setup 1.3.0.exe to install, or the portable executable to run without installation.
+Download the installer or portable executable from:
+https://github.com/Aakira1/ArmaHost-Desktop/releases/latest
+Open Setup to install, or Portable to run without installation. Node.js is not required.
+The source download does not include dist; npm run build generates it.
 
 For source development: install Node.js 22+, then open Start.bat.
 Open Demo.bat to try the controls without an Arma installation.
