@@ -31,7 +31,7 @@ test('Who will play? decides the bind address; old settings are migrated from th
   assert.match(renderConfig(v({ audience: 'self' })), /loopback = 1;/);
   assert.match(renderConfig(v({ audience: 'home' })), /loopback = 0;/);
   assert.throws(() => v({ audience: 'everyone' }), /who will play/i);
-  assert.throws(() => validateSettings({ ...defaults(), audience: 'home' }), /join password/i);
+  assert.equal(validateSettings({ ...defaults(), audience: 'home' }).password, '', 'a join password is optional');
 });
 
 test('the address friends get depends on who will play', () => {

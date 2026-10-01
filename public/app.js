@@ -502,8 +502,8 @@ async function refreshHostingDetails() {
 const AUDIENCE_LABEL = { self: 'Just me · this PC only', home: 'Home network · LAN', internet: 'Friends elsewhere · internet' };
 const AUDIENCE_SUMMARY = {
   self: 'The server only answers on 127.0.0.1. You can play on this PC; nobody else can connect. Choose another option to let friends join.',
-  home: 'The server accepts connections from your network. Friends on your router or Wi-Fi join with this PC’s LAN address. Set a join password, allow the server through Windows Firewall below, then restart the server.',
-  internet: 'The server accepts connections from the internet. Set a join password, detect your public IPv4, forward the UDP game ports on your router (or try UPnP), allow the server through Windows Firewall below, then restart the server.'
+  home: 'The server accepts connections from your network. Friends on your router or Wi-Fi join with this PC’s LAN address. Optionally set a join password, allow the server through Windows Firewall below, then restart the server.',
+  internet: 'The server accepts connections from the internet. Optionally set a join password, detect your public IPv4, forward the UDP game ports on your router (or try UPnP), allow the server through Windows Firewall below, then restart the server.'
 };
 for (const card of document.querySelectorAll('[data-audience]')) card.addEventListener('click', () => {
   $('audience').value = card.dataset.audience; setDirty(); renderNetworkDraft();

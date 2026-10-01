@@ -62,6 +62,7 @@ export function validateSettings(input) {
   if (!Object.hasOwn(input, 'starlinkVpn') && input.starlink) s.starlinkVpn = true;
   // "Who will play?" decides whether the server listens beyond this PC. Settings saved before it
   // existed are read from the old "Allow incoming game connections" toggle.
+  for (const key of ['lan', 'starlink']) if (typeof s[key] !== 'boolean') throw new AppError(`${key} must be true or false.`);
   // An empty audience (the default) is derived from the old toggle as well.
   if (!s.audience) s.audience = input.starlink ? 'internet' : !input.lan ? 'self' : input.publicIp ? 'internet' : 'home';
   if (!AUDIENCES.includes(s.audience)) throw new AppError('Choose who will play: just you, people on your home network, or friends elsewhere.');
@@ -93,11 +94,9 @@ export function validateSettings(input) {
     throw new AppError('Mission template must look like MyMission.Altis, without paths or the .pbo extension.');
   }
   if (/\.pbo$/i.test(s.mission)) throw new AppError('Remove the .pbo extension from the mission template.');
-  if (s.lan && !s.password.trim()) throw new AppError('Set a join password before letting other people join (Who will play? is not "Just me").');
   s.vpnIp = text(s.vpnIp, 'VPN address', 15).trim();
   if (s.vpnIp && !usableAddress(s.vpnIp)) throw new AppError('VPN address must be a unicast IPv4 address, not localhost or a link-local address.');
   if (s.starlink && s.starlinkVpn && !s.vpnIp) throw new AppError('VPN hosting requires your VPN IPv4 address.');
-  if (s.starlink && !s.password.trim()) throw new AppError('Starlink hosting requires a non-empty join password.');
   s.publicIp = text(s.publicIp, 'Public IPv4 address', 15).trim();
   if (s.publicIp && !publicAddress(s.publicIp)) throw new AppError('Enter a public IPv4 address. Private or CGNAT router addresses cannot be used for direct internet sharing.');
   s.rconPassword = text(s.rconPassword, 'RCon password', 64);

@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.8.0
+# ArmaHost Desktop 1.8.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.8.1:** Join passwords are optional: leave the field empty for an open server.
 
 **1.8.0:** **Co-op starter**: no missions? ArmaHost writes a ready co-op mission (squad slots, respawn base, Arsenal, Zeus for the admin) on Altis, Stratis, Malden, VR, Tanoa or Livonia and selects it.
 
