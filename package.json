@@ -12,7 +12,7 @@
     "demo": "electron . --demo",
     "test": "node --test tests/*.test.mjs",
     "start:web": "node server.mjs --open",
-    "build": "electron-builder --win nsis portable --x64",
+    "build": "electron-builder --win nsis portable --x64 --publish never",
     "smoke": "electron . --demo --smoke-test"
   },
   "license": "MIT",
