@@ -91,3 +91,16 @@ With live monitoring (BattlEye RCon) enabled, Stop Server first asks the server 
 ## Restart the server if it crashes
 
 Optional (Setup › Session configuration). When the dedicated server exits with an error while running, it is restarted after 5 seconds, at most 3 times in 10 minutes. Clean exits, Stop Server and failed first starts never trigger it. It only restarts the dedicated server and never launches the game.
+
+## The game sits at the Arma logo after Join
+- Check Task Manager for an older Arma 3 process that's still running (0% CPU), and end it.
+- Use the default join method, **Open the Arma 3 Launcher**. Then use Direct Connect with the copied address.
+- The game's own log (the newest `.rpt` in `%LOCALAPPDATA%\Arma 3\`) shows what it is waiting on.
+
+## Overview shows 127.0.0.1 and "this PC only"
+That's the address while **Allow incoming game connections** is off: only this PC can join.
+
+1. Turn that option on and set a join password.
+2. Press **Detect my public IP**, or type your router's public IPv4.
+3. Forward UDP ports 2302-2306 to this PC, or try **Automatic port forwarding (UPnP)**.
+4. Save, then restart the server.

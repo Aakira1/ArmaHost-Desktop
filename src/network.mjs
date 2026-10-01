@@ -49,3 +49,16 @@ export function hostingInfo(s, interfaces = os.networkInterfaces()) {
     note: 'Detection is local only. It does not verify router forwarding, peer access, firewall rules or game readiness.'
   };
 }
+
+// Asks one public "what is my IP" service, only when the user presses Detect. Never automatic.
+export const PUBLIC_IP_SERVICE = 'https://api.ipify.org?format=json';
+export async function detectPublicIp(fetcher = fetch) {
+  let ip;
+  try {
+    const response = await fetcher(PUBLIC_IP_SERVICE, { signal: AbortSignal.timeout(6000), redirect: 'error' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    ip = String((await response.json()).ip || '');
+  } catch (error) { return { ok: false, message: `Couldn't detect your public IP (${error.message}). Check your internet connection, or look it up on your router and enter it manually.` }; }
+  if (!publicAddress(ip)) return { ok: false, message: `The detection service returned ${ip.slice(0, 40) || 'nothing'}, which isn't a public IPv4 address. Enter it manually from your router.` };
+  return { ok: true, ip, message: `Detected public IPv4 ${ip}. If your router's own WAN address is in 100.64-100.127.x.x (CGNAT, common on Starlink and some mobile providers), port forwarding can't work; use the VPN option instead.` };
+}

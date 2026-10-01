@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { defaults, validateSettings, serverArgs, clientArgs, assertServerExecutable } from '../src/config.mjs';
+import { defaults, validateSettings, serverArgs, clientArgs, assertServerExecutable, renderConfig } from '../src/config.mjs';
 import { ProcessManager } from '../src/process-manager.mjs';
 import { LogBook } from '../src/logs.mjs';
 
@@ -15,7 +15,7 @@ async function fixture(fn, { deps = {}, settings = {} } = {}) {
   await mkdir(serverDir); await mkdir(gameDir);
   const serverExe = path.join(serverDir, 'arma3server_x64.exe'); const gameExe = path.join(gameDir, 'arma3_x64.exe');
   for (const f of [serverExe, gameExe, path.join(gameDir, 'arma3battleye.exe')]) await writeFile(f, '');
-  const spawns = []; const gameCalls = []; const children = [];
+  const spawns = []; const gameCalls = []; const children = []; const opened = [];
   const fake = { exit: null, spawnError: null };
   const spawn = (exe, args, options) => {
     const child = new EventEmitter(); child.pid = 4000 + spawns.length; child.unref = () => {}; child.killed = false;
@@ -30,11 +30,11 @@ async function fixture(fn, { deps = {}, settings = {} } = {}) {
   };
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, deps: {
-    spawn, platform: 'win32', startupGraceMs: 60,
+    spawn, platform: 'win32', startupGraceMs: 60, openUrl: url => opened.push(url),
     armaProcesses: async () => ({ games: [], servers: [] }), ownsServer: async () => true,
     gameLaunch: (s, c) => { gameCalls.push(s); return { exe: path.join(gameDir, 'arma3battleye.exe'), args: ['2', '1', '0'] }; }, ...deps } });
-  const s = validateSettings({ ...defaults(), serverExe, gameExe, port: (portBase += 10), ...settings });
-  try { await fn({ manager, s, spawns, gameCalls, children, fake, dir, serverExe, gameExe, logs }); }
+  const s = validateSettings({ ...defaults(), serverExe, gameExe, port: (portBase += 10), joinMethod: 'direct', ...settings });
+  try { await fn({ manager, s, spawns, gameCalls, children, fake, dir, serverExe, gameExe, logs, opened }); }
   finally { await manager.close().catch(() => {}); await rm(dir, { recursive: true, force: true }); }
 }
 
@@ -346,3 +346,36 @@ test('a waiting Join can be cancelled, is cancelled by Stop, and times out with 
   assert.equal(gameCalls.length, 0);
   await assert.rejects(manager.join(s, { whenReady: true }).then(() => manager.join(s, { whenReady: true })), /already waiting/i);
 }));
+
+test('Join through the Arma 3 Launcher opens Steam\'s launcher and starts no game process', () => fixture(async ({ manager, s, spawns, gameCalls, opened, dir }) => {
+  const mod = path.join(dir, '@CBA_A3'); await mkdir(mod);
+  await manager.start({ ...s, joinMethod: 'launcher', password: 'pw', mods: [{ path: mod, enabled: true, scope: 'shared' }] });
+  const result = await manager.join({ ...s, joinMethod: 'launcher', gameExe: '' });
+  assert.equal(result.launcher, true);
+  assert.deepEqual(opened, ['steam://run/107410']);
+  assert.equal(spawns.length, 1, 'only the dedicated server was started'); assert.equal(gameCalls.length, 0);
+  assert.deepEqual(result.connect, { host: '127.0.0.1', port: s.port, hasPassword: true });
+  assert.match(result.message, /Direct Connect: 127\.0\.0\.1 port \d+ \(use your join password\).*@CBA_A3/);
+  assert.ok(!JSON.stringify(result).includes('"pw"'), 'the password itself is not returned');
+}));
+
+test('Launcher join refuses while Arma 3 is already running, and joining a friend uses their address', () => fixture(async ({ manager, s, opened }) => {
+  await manager.start({ ...s, joinMethod: 'launcher' });
+  manager.deps.armaProcesses = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 5 }], servers: [] });
+  await assert.rejects(manager.join({ ...s, joinMethod: 'launcher' }), /already running.*Task Manager/);
+  assert.equal(opened.length, 0);
+  manager.deps.armaProcesses = async () => ({ games: [], servers: [] });
+  const remote = await manager.joinRemote({ ...defaults(), joinMethod: 'launcher', remoteHost: 'friend.example.com', remotePort: 2402 });
+  assert.deepEqual(remote.connect, { host: 'friend.example.com', port: 2402, hasPassword: false });
+  assert.deepEqual(opened, ['steam://run/107410']);
+}));
+
+test('join method and UPnP settings are validated; UPnP only applies when hosting directly', () => {
+  assert.equal(validateSettings(defaults()).joinMethod, 'launcher');
+  assert.throws(() => validateSettings({ ...defaults(), joinMethod: 'cmd.exe' }), /Join method/);
+  const cfg = settings => renderConfig(validateSettings({ ...defaults(), password: 'pw', ...settings }));
+  assert.match(cfg({ upnp: true }), /upnp = 0;/, 'not when only this PC can join');
+  assert.match(cfg({ upnp: true, lan: true }), /upnp = 1;/);
+  assert.match(cfg({ upnp: false, lan: true }), /upnp = 0;/);
+  assert.match(cfg({ upnp: true, starlink: true, starlinkVpn: true, vpnIp: '100.64.1.2' }), /upnp = 0;/, 'not over a VPN');
+});

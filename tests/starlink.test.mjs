@@ -70,3 +70,15 @@ test('network API authenticates requests and uses the running server settings un
     assert.equal((await next.json()).address, '100.101.2.4:2302');
   } finally { await app?.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test('public IP detection only accepts a real public IPv4 and fails with guidance', async () => {
+  const { detectPublicIp, PUBLIC_IP_SERVICE } = await import('../src/network.mjs');
+  const calls = [];
+  const fake = body => async (url, options) => { calls.push([url, options.redirect]); return typeof body === 'number' ? new Response('', { status: body }) : Response.json(body); };
+  const ok = await detectPublicIp(fake({ ip: '8.8.4.4' }));
+  assert.equal(ok.ok, true); assert.equal(ok.ip, '8.8.4.4'); assert.match(ok.message, /CGNAT/);
+  assert.deepEqual(calls[0], [PUBLIC_IP_SERVICE, 'error']);
+  for (const ip of ['192.168.1.5', '100.72.1.1', '10.0.0.1', '<script>', '']) assert.equal((await detectPublicIp(fake({ ip }))).ok, false, ip);
+  assert.match((await detectPublicIp(fake(503))).message, /Couldn't detect.*HTTP 503.*manually/);
+  assert.match((await detectPublicIp(async () => { throw new Error('offline'); })).message, /offline/);
+});
