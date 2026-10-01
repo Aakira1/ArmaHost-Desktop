@@ -114,7 +114,7 @@ async function boot() {
     { label: 'File', submenu: [{ label: 'Open data folder', click: () => { void shell.openPath(dir); } }, { type: 'separator' }, { label: 'Quit', accelerator: 'Alt+F4', click: () => { void requestClose(); } }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.6.2', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
+    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.7.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
   ]));
   window.once('ready-to-show', () => window.show());
   await window.loadURL(backend.url + '/#token=' + backend.token);
@@ -154,7 +154,7 @@ async function boot() {
     await new Promise(resolve => setTimeout(resolve, 400));
     result.networkPanel = await window.webContents.executeJavaScript("document.getElementById('vpn-note').textContent.includes('local only')");
     if (!result.networkPanel) throw new Error('Network panel API did not respond.');
-    result.directStarlink = await window.webContents.executeJavaScript("!document.getElementById('starlink-network-steps').hidden && !document.getElementById('direct-network').hidden && document.getElementById('network-kind').textContent === 'STARLINK'");
+    result.directStarlink = await window.webContents.executeJavaScript("!document.getElementById('starlink-network-steps').hidden && !document.getElementById('direct-network').hidden && document.getElementById('network-kind').textContent === 'INTERNET · STARLINK' && !document.getElementById('internet-options').hidden && document.getElementById('audience').value === 'internet'");
     if (!result.directStarlink) throw new Error('Direct Starlink switch did not update.');
     backend.logs.add('SMOKE: writing evidence.');
     await mkdir(path.join(root, 'docs', 'screenshots'), { recursive: true });

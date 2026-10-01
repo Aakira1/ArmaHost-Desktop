@@ -31,7 +31,7 @@ async function fixture(fn, { deps = {}, settings = {} } = {}) {
   };
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, deps: {
-    spawn, platform: 'win32', startupGraceMs: 60, openUrl: url => opened.push(url), closeWaitMs: 300,
+    spawn, platform: 'win32', startupGraceMs: 60, openUrl: url => opened.push(url), closeWaitMs: 300, launchVerifyMs: 0,
     findLauncher: exe => findLauncher(exe, async () => ({ games: [] })),
     endGameProcesses: (pids, options) => endGameProcesses(pids, { ...options, kill: async pid => { killed.push(pid); } }),
     armaProcesses: async () => ({ games: [], servers: [] }), ownsServer: async () => true,
@@ -453,7 +453,22 @@ test('join method and UPnP settings are validated; UPnP only applies when hostin
   assert.throws(() => validateSettings({ ...defaults(), joinMethod: 'cmd.exe' }), /Join method/);
   const cfg = settings => renderConfig(validateSettings({ ...defaults(), password: 'pw', ...settings }));
   assert.match(cfg({ upnp: true }), /upnp = 0;/, 'not when only this PC can join');
-  assert.match(cfg({ upnp: true, lan: true }), /upnp = 1;/);
+  assert.match(cfg({ upnp: true, audience: 'internet' }), /upnp = 1;/);
+  assert.match(cfg({ upnp: true, audience: 'home' }), /upnp = 0;/, 'not for a home network');
   assert.match(cfg({ upnp: false, lan: true }), /upnp = 0;/);
   assert.match(cfg({ upnp: true, starlink: true, starlinkVpn: true, vpnIp: '100.64.1.2' }), /upnp = 0;/, 'not over a VPN');
 });
+
+test('if arma3launcher.exe does not stay open, Steam is asked instead and the result says so', () => fixture(async ({ manager, s, spawns, opened, gameDir }) => {
+  const launcher = path.join(gameDir, 'arma3launcher.exe'); await writeFile(launcher, '');
+  manager.deps.launchVerifyMs = 60; manager.deps.launchPollMs = 10;
+  const result = await manager.openLauncherOnly(s);
+  assert.equal(spawns[0].exe, launcher);
+  assert.equal(result.verified, false); assert.equal(result.viaSteam, true); assert.match(result.message, /closed straight after starting.*Steam/);
+  assert.deepEqual(opened, ['steam://run/107410']);
+  manager.lastJoin = 0; opened.length = 0;
+  let calls = 0;
+  manager.deps.armaProcesses = async () => (++calls > 1 ? { games: [], servers: [], battleye: [], launchers: [{ name: 'arma3launcher.exe', pid: 91 }] } : { games: [], servers: [] });
+  const ok = await manager.openLauncherOnly(s);
+  assert.equal(ok.verified, true); assert.equal(ok.viaSteam, false); assert.deepEqual(opened, []);
+}));
