@@ -15,10 +15,20 @@ import { queryServer } from './query.mjs';
 import { LiveMap } from './live-map.mjs';
 import { TopoBuilder } from './topo.mjs';
 import { writeMapAddon } from './map-addon.mjs';
-import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
+import { gameLaunch, armaProcesses, ownsServer, findLauncher, endGameProcesses } from './game-launch.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export const ARMA3_LAUNCHER_URL = 'steam://run/107410';
+const PROCESS_ROLES = [['games', 'Game'], ['battleye', 'Game (BattlEye start-up)'], ['launchers', 'Arma 3 Launcher'], ['servers', 'Dedicated server']];
+// Every Arma process with what it is, so "two Arma 3 in Task Manager" can be told apart: the
+// dedicated server and the game are expected together; two games are not.
+export function describeProcesses(processes, ownServerPid = null) {
+  const list = [];
+  for (const [key, role] of PROCESS_ROLES) for (const p of processes[key] || []) {
+    list.push({ name: p.name, pid: p.pid, role: key === 'servers' && p.pid === ownServerPid ? 'Dedicated server (started by ArmaHost)' : role, closable: key !== 'servers' });
+  }
+  return list;
+}
 // Resolves true if the child closes within ms; never leaves a timer behind.
 function waitForClose(child, ms) {
   return new Promise(resolve => {
@@ -54,12 +64,12 @@ export function joinSettings(active, saved) {
   for (const m of [...active.mods.filter(m => m.scope === 'shared'), ...saved.mods.filter(m => m.scope === 'client')]) {
     if (!mods.some(x => modKey(x.path) === modKey(m.path))) mods.push(m);
   }
-  return { ...structuredClone(active), gameExe: saved.gameExe, mods: structuredClone(mods) };
+  return { ...structuredClone(active), gameExe: saved.gameExe, joinMethod: saved.joinMethod, mods: structuredClone(mods) };
 }
 export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
-    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
+    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, findLauncher, endGameProcesses, closeWaitMs: 5000, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
       openUrl: url => { const child = spawn('explorer.exe', [url], { detached: true, stdio: 'ignore', windowsHide: true }); child.on('error', () => {}); child.unref(); }, gracefulStopMs: 15000, joinPollMs: 2000, joinQueryMs: 5000, joinWaitMs: 600000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
     this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false; this.pendingJoin = null;
     logs?.listeners?.add(entry => this.observe(entry));
@@ -323,7 +333,9 @@ export class ProcessManager {
     return this.perform('restarting', async () => { await this.stopInternal(); return this.startInternal(settings); });
   }
   async join(savedSettings, { whenReady = false } = {}) {
-    if (whenReady && this.child && !this.ready && !this.demo) {
+    // The launcher takes a while to reach the menu anyway, so it opens straight away; only a direct
+    // game start waits for the server.
+    if (whenReady && savedSettings.joinMethod !== 'launcher' && this.child && !this.ready && !this.demo) {
       if (this.pendingJoin) throw new AppError('Already waiting for the server to come online. The game will launch automatically.', 409);
       return this.waitThenJoin(savedSettings);
     }
@@ -378,7 +390,7 @@ export class ProcessManager {
   async launchGame(s, connection, saved = null) {
       if (Date.now() - this.lastJoin < 10000) throw new AppError('A game launch was just requested. Allow it to open before trying again.', 429);
       if (this.demo) { this.logs.add('DEMO Join clicked. A real session would launch Arma 3; nothing was executed.'); this.lastJoin = Date.now(); return { message: 'Demo only: no game was launched.' }; }
-      if (s.joinMethod === 'launcher') return this.openLauncher(s, connection);
+      if (s.joinMethod === 'launcher') return this.openLauncher(s, connection || { host: gameAddress(s), port: s.port, password: s.password });
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
       const processes = await this.deps.armaProcesses();
       if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Direct Connect in the existing game, or close it before pressing Join.', 409);
@@ -400,17 +412,77 @@ export class ProcessManager {
       if (s.battleye) this.logs.add('Game launched through the official BattlEye bootstrap. Allow its update check to finish.');
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
   }
-  // Join through the official Arma 3 Launcher (via Steam) instead of starting the game directly:
-  // the launcher handles BattlEye, mods and updates itself. The player then uses Direct Connect.
-  async openLauncher(s, connection = { host: gameAddress(s), port: s.port, password: s.password }) {
-    const processes = await this.deps.armaProcesses();
-    if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Server Browser > Direct Connect in the open game, or close it first (check Task Manager for a stuck Arma 3 process).', 409);
-    this.deps.openUrl(ARMA3_LAUNCHER_URL);
-    this.lastJoin = Date.now();
-    const mods = s.mods.filter(m => m.enabled && m.scope !== 'server').map(m => path.basename(m.path));
-    this.logs.add(`Opened the Arma 3 Launcher to join ${connection.host}:${connection.port}.`);
-    return { launcher: true, connect: { host: connection.host, port: connection.port, hasPassword: Boolean(connection.password) },
-      message: `Opening the Arma 3 Launcher. In it, press Play, then Multiplayer > Server Browser > Direct Connect: ${connection.host} port ${connection.port}${connection.password ? ' (use your join password)' : ''}.${mods.length ? ` Enable these mods in the launcher first: ${mods.join(', ')}.` : ''}` };
+  // Join through the official Arma 3 Launcher instead of starting the game directly: the launcher
+  // handles BattlEye, mods and updates itself and the player uses Direct Connect. arma3launcher.exe
+  // is started directly from the game folder; Steam is only the fallback when it can't be found.
+  // Nothing is opened while Arma 3 is already running: the processes are returned instead so the
+  // player can see them and close a stuck copy.
+  async openLauncher(s, connection = null) {
+    if (this.openingLauncher) throw new AppError('The Arma 3 Launcher is already being opened.', 429);
+    this.openingLauncher = true;
+    try {
+      const processes = await this.deps.armaProcesses();
+      const running = describeProcesses(processes, this.child?.pid);
+      const connect = connection ? { host: connection.host, port: connection.port, hasPassword: Boolean(connection.password) } : null;
+      const mods = connection ? s.mods.filter(m => m.enabled && m.scope !== 'server').map(m => path.basename(m.path)) : [];
+      const directions = connection ? ` Press Play, then Multiplayer > Server Browser > Direct Connect: ${connection.host} port ${connection.port}${connection.password ? ' (use your join password)' : ''}.${mods.length ? ` Enable these mods in the launcher first: ${mods.join(', ')}.` : ''}` : '';
+      const listed = list => list.map(p => `${p.name} (PID ${p.pid})`).join(', ');
+      const games = [...processes.games, ...(processes.battleye || [])];
+      if (games.length) {
+        this.logs.add(`Arma 3 is already running: ${listed(games)}. The launcher was not opened.`);
+        return { launcher: false, running, connect, message: `Arma 3 is already running: ${listed(games)}. A copy stuck at the Arma logo stops a new one from loading. Close it, then open the launcher again.` };
+      }
+      if (processes.launchers?.length) {
+        this.logs.add(`The Arma 3 Launcher is already open: ${listed(processes.launchers)}.`);
+        return { launcher: true, alreadyOpen: true, running, connect, message: `The Arma 3 Launcher is already open (PID ${processes.launchers.map(p => p.pid).join(', ')}). Switch to it on the taskbar.${directions}` };
+      }
+      const exe = await this.deps.findLauncher(s.gameExe);
+      if (exe) {
+        const child = this.deps.spawn(exe, [], { cwd: path.dirname(exe), shell: false, detached: true, stdio: 'ignore' });
+        child.on('error', error => this.logs.add(`Arma 3 Launcher error: ${error.message}`));
+        try { await once(child, 'spawn'); } catch (error) { throw new AppError(`Could not open the Arma 3 Launcher (${exe}): ${error.message}`); }
+        child.unref();
+        this.logs.add(`Opened Arma 3 Launcher: ${exe} (PID ${child.pid}).`);
+      } else {
+        this.deps.openUrl(ARMA3_LAUNCHER_URL);
+        this.logs.add('arma3launcher.exe was not found in the Arma 3 folder, so Steam was asked to start Arma 3 instead.');
+      }
+      this.lastJoin = Date.now();
+      if (connection) this.logs.add(`Join address for Direct Connect: ${connection.host}:${connection.port}.`);
+      return { launcher: true, viaSteam: !exe, running: [], connect,
+        message: exe ? `Opening the Arma 3 Launcher.${directions}` : `Couldn't find arma3launcher.exe next to the game, so Steam was asked to start Arma 3. Set the Arma 3 game path in Setup so ArmaHost can open the launcher directly.${directions}` };
+    } finally { this.openingLauncher = false; }
+  }
+  // The "Open Arma 3 Launcher" button: works whether or not the server is running and never waits.
+  // When the managed server is running, its address is included for Direct Connect.
+  async openLauncherOnly(saved) {
+    if (Date.now() - this.lastJoin < 10000) throw new AppError('The Arma 3 Launcher was just opened. Give it a few seconds to appear.', 429);
+    if (this.demo) { this.logs.add('DEMO Open Arma 3 Launcher clicked. Nothing was executed.'); this.lastJoin = Date.now(); return { launcher: false, running: [], message: 'Demo only: the Arma 3 Launcher was not opened.' }; }
+    if (this.deps.platform !== 'win32') throw new AppError('Opening the Arma 3 Launcher requires Windows.');
+    if (!this.child) return this.openLauncher(saved, null);
+    const s = joinSettings(this.activeSettings, saved);
+    return this.openLauncher(s, { host: gameAddress(s), port: s.port, password: s.password });
+  }
+  async armaStatus() {
+    if (this.demo) return { processes: [], note: 'Demo mode: Arma processes are not checked.' };
+    return { processes: describeProcesses(await this.deps.armaProcesses(), this.child?.pid) };
+  }
+  // Closes game-side Arma processes the player chose (never a dedicated server), then waits briefly
+  // for Windows to remove them so the launcher can be opened straight after.
+  async closeGame(pids) {
+    if (this.demo) return { results: [], message: 'Demo only: nothing was closed.' };
+    if (!Array.isArray(pids) || !pids.length || pids.length > 20 || !pids.every(p => Number.isSafeInteger(p) && p > 0)) throw new AppError('Choose the Arma 3 processes to close.');
+    if (this.child && pids.includes(this.child.pid)) throw new AppError('That is the dedicated server. Use Stop Server to stop it.', 409);
+    const results = await this.deps.endGameProcesses(pids, { list: this.deps.armaProcesses });
+    for (const r of results) this.logs.add(r.ok ? `Closed ${r.name} (PID ${r.pid}).` : `Could not close PID ${r.pid}: ${r.message}`);
+    const closed = results.filter(r => r.ok).map(r => r.pid);
+    for (const until = Date.now() + this.deps.closeWaitMs; closed.length && Date.now() < until;) {
+      const now = await this.deps.armaProcesses();
+      if (![...now.games, ...(now.battleye || []), ...(now.launchers || [])].some(p => closed.includes(p.pid))) break;
+      await sleep(250);
+    }
+    const failed = results.filter(r => !r.ok);
+    return { results, message: failed.length ? `Closed ${closed.length} of ${results.length}. ${failed[0].message}` : `Closed ${closed.length} Arma 3 process${closed.length === 1 ? '' : 'es'}.` };
   }
   async close({ leaveRunning = false } = {}) {
     this.closing = true; this.cancelAutoRestart(); this.cancelJoin();

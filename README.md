@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.6.1
+# ArmaHost Desktop 1.6.2
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.6.2:** **Open Arma 3 Launcher** starts the launcher directly from your Arma 3 folder; ArmaHost shows which Arma processes are running and can close a stuck game.
 
 **1.6.1:** Join opens the Arma 3 Launcher; detect public IP; optional UPnP port forwarding.
 

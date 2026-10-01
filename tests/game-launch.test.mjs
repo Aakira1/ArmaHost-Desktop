@@ -14,4 +14,7 @@ test('process inventory identifies clients and servers without treating launcher
   const rows = parseArmaProcesses('"arma3_x64.exe","100","Console","1","200 K"\n"arma3server_x64.exe","200","Console","1","300 K"\n"arma3launcher.exe","300","Console","1","100 K"');
   assert.deepEqual(rows.games.map(p => p.pid), [100]);
   assert.deepEqual(rows.servers.map(p => p.pid), [200]);
+  assert.deepEqual(rows.launchers.map(p => p.pid), [300]);
+  const more = parseArmaProcesses('"Arma3BattlEye.exe","400","Console","1","9 K"\n"arma3.exe","500","Console","1","9 K"\n"notarma3.exe","600","Console","1","9 K"');
+  assert.deepEqual(more.battleye.map(p => p.pid), [400]); assert.deepEqual(more.games.map(p => p.pid), [500]);
 });

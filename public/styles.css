@@ -77,3 +77,4 @@
 .map-grid line{stroke:rgba(25,40,38,.32)}.map-toggle{white-space:nowrap}
 
 .input-row{display:flex;gap:10px;align-items:stretch}.input-row input{flex:1}.input-row .button{white-space:nowrap}
+.process-list{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px}.process-list li{display:flex;justify-content:space-between;gap:14px;padding:11px 14px;border:1px solid #34422f;border-radius:7px;font-size:12px;background:#111a14}.process-list li.keep{opacity:.75}.process-list code{font-family:Consolas,monospace;color:#cfe0bd}.process-list .role{color:var(--muted);font-size:11px;text-align:right}

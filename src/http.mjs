@@ -125,7 +125,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/discover') return send(200, await discoverInstallations());
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
-        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child) }));
+        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child), processes: await manager.armaStatus().then(r => r.processes).catch(() => null) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
         else if (route === 'POST /api/network/public-ip') return send(200, await detectPublicIp());
@@ -138,6 +138,9 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings, { whenReady: body.whenReady === true }));
         else if (route === 'POST /api/game/join/cancel') return send(200, manager.cancelJoin());
         else if (route === 'POST /api/game/join-remote') return send(200, await manager.joinRemote(store.snapshot().settings));
+        else if (route === 'POST /api/game/launcher') return send(200, await manager.openLauncherOnly(store.snapshot().settings));
+        else if (route === 'POST /api/game/processes') return send(200, await manager.armaStatus());
+        else if (route === 'POST /api/game/close') return send(200, await manager.closeGame(body.pids));
         else if (route === 'POST /api/quit') {
           send(200, { message: 'Stopping the managed server and closing Local Host.' });
           setTimeout(() => { void close().then(() => onQuit?.()).catch(error => console.error('Shutdown error:', error.message)); }, 80);
