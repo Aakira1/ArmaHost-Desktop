@@ -8,6 +8,7 @@ import { LogBook } from './logs.mjs';
 import { ProcessManager, joinSettings } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics, modInfo, steamAccounts } from './discovery.mjs';
 import { Firewall } from './firewall.mjs';
+import { writeCoopMission } from './coop-mission.mjs';
 import { hostingInfo, detectPublicIp, inviteText } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
 import { MapBackgrounds } from './map-backgrounds.mjs';
@@ -147,6 +148,17 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/presets/load') await store.loadPreset(body.id, body.revision);
         else if (route === 'POST /api/presets/delete') await store.deletePreset(body.id, body.revision);
         else if (route === 'POST /api/discover') return send(200, await discoverInstallations());
+        else if (route === 'POST /api/missions/create-coop') {
+          // Writes the co-op starter into the server's MPMissions and makes it the mission to run.
+          const current = store.snapshot();
+          const serverExe = demo ? path.join(dir, 'demo-server', 'arma3server_x64.exe') : current.settings.serverExe;
+          let created;
+          try { created = await writeCoopMission(serverExe, { world: body.world, slots: body.slots, zeus: body.zeus !== false, arsenal: body.arsenal !== false }); }
+          catch (error) { throw new AppError(error.message, 409); }
+          await store.saveSettings(validateSettings({ ...current.settings, mission: created.template }), current.revision);
+          logs.add(`Co-op starter written: ${created.folder}. Mission set to ${created.template}.`);
+          return send(200, { ...created, message: `Created ${created.template} and set it as your mission. ${manager.child ? 'Restart the server to load it.' : 'Start the server to play.'}`, state: state() });
+        }
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
         else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child), processes: await manager.armaStatus().then(r => r.processes).catch(() => null) }));

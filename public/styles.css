@@ -94,3 +94,4 @@
 .update-advanced summary{font-size:10px;color:var(--muted);cursor:pointer}.update-advanced[open]{display:flex;flex-direction:column;gap:6px}.update-advanced input{font-size:11px;padding:7px}
 .side-links{display:flex;flex-direction:column;gap:2px;border-top:1px solid #243022;padding-top:8px}.side-link{display:flex;align-items:center;gap:9px;background:none;border:0;color:#b9c8ad;font:inherit;font-size:12px;padding:5px 2px;cursor:pointer;border-radius:6px;text-align:left}.side-link:hover{color:var(--accent)}.side-link span{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;background:#1f2a1d;font-size:10px;color:var(--accent)}
 .quit-button{font-size:11px;padding:8px}
+.coop-panel{border-color:#4d6a35;background:linear-gradient(135deg,#1a2716,#141d15)}.coop-panel h2 .badge{vertical-align:middle;margin-left:8px;font-size:9px}.coop-grid{margin-top:6px}
