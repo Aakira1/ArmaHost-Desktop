@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.6.2
+# ArmaHost Desktop 1.7.0
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.7.0:** **Who will play?** setup (just me / home network / friends elsewhere), **Invite a friend** with an evidence-only connection checklist, and a **Windows Firewall helper**. The launcher is now confirmed to have started (Steam is the fallback).
 
 **1.6.2:** **Open Arma 3 Launcher** starts the launcher directly from your Arma 3 folder; ArmaHost shows which Arma processes are running and can close a stuck game.
 

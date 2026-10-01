@@ -6,8 +6,9 @@ import { AppError, validateSettings, renderConfig, serverArgs, clientArgs, displ
 import { Store } from './store.mjs';
 import { LogBook } from './logs.mjs';
 import { ProcessManager, joinSettings } from './process-manager.mjs';
-import { discoverInstallations, scanMissions, scanMods, diagnostics } from './discovery.mjs';
-import { hostingInfo, detectPublicIp } from './network.mjs';
+import { discoverInstallations, scanMissions, scanMods, diagnostics, modInfo } from './discovery.mjs';
+import { Firewall } from './firewall.mjs';
+import { hostingInfo, detectPublicIp, inviteText } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
 import { MapBackgrounds } from './map-backgrounds.mjs';
 
@@ -31,7 +32,7 @@ async function jsonBody(req) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AppError('Request body must be a JSON object.');
   return body;
 }
-export async function createApp({ root, dir, demo = false, port = 3000, onQuit = null }) {
+export async function createApp({ root, dir, demo = false, port = 3000, onQuit = null, firewall = new Firewall({ demo }) }) {
   const store = await Store.open(dir);
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, demo });
@@ -39,6 +40,29 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   const monitor = new LiveMonitor(manager, logs);
   manager.gracefulStop = () => monitor.shutdown();
   const backgrounds = new MapBackgrounds(dir);
+  // Invite text for the running session: its address, mods and (only if chosen) the join password.
+  const invite = async includePassword => {
+    if (!manager.child) throw new AppError('Start the server first. The invite uses the running server\u2019s settings.', 409);
+    const s = manager.activeSettings; const hosting = hostingInfo(s);
+    const mods = await Promise.all(s.mods.filter(m => m.enabled && m.scope === 'shared').map(m => modInfo(m.path)));
+    try { return { text: inviteText(s, hosting, { includePassword, mods }), address: hosting.address, scope: hosting.scope, audience: hosting.audience, hasPassword: Boolean(s.password), includesPassword: Boolean(includePassword && s.password) }; }
+    catch (error) { throw new AppError(error.message, 409); }
+  };
+  // Connection checklist: only what has actually been observed, otherwise "not tested".
+  const connectionCheck = async () => {
+    const running = Boolean(manager.child); const s = running ? manager.activeSettings : store.snapshot().settings;
+    const q = manager.lastQuery && manager.lastQuery.pid === manager.child?.pid ? manager.lastQuery : null;
+    const hosting = hostingInfo(s);
+    let fw = null; try { fw = s.serverExe && s.lan ? await firewall.status(s) : null; } catch { fw = null; }
+    const players = monitor.snapshot().players || [];
+    return { audience: hosting.audience, address: hosting.address, items: [
+      { id: 'process', state: running ? 'pass' : 'todo', label: 'Server process started', detail: running ? `PID ${manager.child.pid}` : 'Start the server.' },
+      { id: 'local', state: !running ? 'todo' : demo ? 'untested' : q ? (q.ok ? 'pass' : 'fail') : 'untested', label: 'Responding on this PC', detail: !running ? 'Start the server first.' : demo ? 'Demo mode.' : q ? (q.ok ? `Answered a server query at ${new Date(q.at).toLocaleTimeString()} (${q.latencyMs} ms).` : `No answer at ${new Date(q.at).toLocaleTimeString()}. It may still be loading.`) : 'Not tested. Press Test server is up.' },
+      ...(s.lan ? [{ id: 'firewall', state: !fw || !fw.supported ? 'untested' : fw.blocks?.length ? 'fail' : fw.ok ? 'pass' : 'todo', label: 'Windows Firewall allows the server', detail: !fw ? 'Not checked.' : fw.supported ? fw.message || fw.error : fw.message }] : []),
+      ...(hosting.audience === 'internet' ? [{ id: 'outside', state: 'untested', label: 'Reachable from outside your network', detail: 'Not tested. ArmaHost can\u2019t check this from your own PC; ask your friend to join, or use Test server is up from their side.' }] : []),
+      { id: 'players', state: !running ? 'todo' : players.length ? 'pass' : q?.ok && q.players > 0 ? 'pass' : 'untested', label: 'Players on the server', detail: players.length ? players.map(p => p.name).slice(0, 8).join(', ') : q?.ok ? `${q.players} player(s) at the last server query.` : 'Not tested. Turn on live monitoring or press Test server is up after your friend joins.' }
+    ] };
+  };
   const token = randomBytes(32).toString('hex');
   let closing = false; let actualPort; let closePromise;
   const refreshSecrets = () => {
@@ -138,6 +162,12 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings, { whenReady: body.whenReady === true }));
         else if (route === 'POST /api/game/join/cancel') return send(200, manager.cancelJoin());
         else if (route === 'POST /api/game/join-remote') return send(200, await manager.joinRemote(store.snapshot().settings));
+        else if (route === 'POST /api/invite') return send(200, await invite(body.includePassword === true));
+        else if (route === 'POST /api/connection/check') return send(200, await connectionCheck());
+        else if (route === 'POST /api/firewall/status') return send(200, await firewall.status(store.snapshot().settings));
+        else if (route === 'POST /api/firewall/allow') return send(200, await firewall.allow(store.snapshot().settings));
+        else if (route === 'POST /api/firewall/remove') return send(200, await firewall.remove(store.snapshot().settings));
+        else if (route === 'POST /api/firewall/remove-blocks') { if (body.confirm !== true) throw new AppError('Confirm removing the block rules.'); return send(200, await firewall.removeBlocks(store.snapshot().settings)); }
         else if (route === 'POST /api/game/launcher') return send(200, await manager.openLauncherOnly(store.snapshot().settings));
         else if (route === 'POST /api/game/processes') return send(200, await manager.armaStatus());
         else if (route === 'POST /api/game/close') return send(200, await manager.closeGame(body.pids));

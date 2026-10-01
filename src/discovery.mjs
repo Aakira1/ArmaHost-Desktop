@@ -70,6 +70,15 @@ export async function scanMissions(serverExe) {
   } catch (error) { warnings.push(error.code === 'ENOENT' ? 'No MPMissions folder found. Add your mission to the server installation or enter a built-in mission template.' : `Cannot read MPMissions: ${error.message}`); }
   return { folder, missions: missions.sort((a, b) => a.template.localeCompare(b.template)), warnings };
 }
+// Mod display name and Steam Workshop id, read from mod.cpp / meta.cpp (or a Workshop content folder name).
+export async function modInfo(folder) {
+  let workshopId = /[\\/]workshop[\\/]content[\\/]107410[\\/](\d{4,20})[\\/]?$/i.exec(folder)?.[1] || '';
+  try {
+    const file = path.join(folder, 'meta.cpp');
+    if ((await stat(file)).size <= 65536) workshopId = /\bpublishedid\s*=\s*(\d{4,20})\s*;/i.exec(await readFile(file, 'utf8'))?.[1] || workshopId;
+  } catch { /* No metadata. */ }
+  return { name: await modName(folder), workshopId: workshopId === '0' ? '' : workshopId };
+}
 async function modName(folder) {
   for (const name of ['mod.cpp', 'meta.cpp']) {
     try {

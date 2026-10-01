@@ -8,7 +8,7 @@ export function defaults() {
   return {
     gameExe: '', serverExe: '', serverName: 'Arma 3 Local Operations',
     port: 2302, maxPlayers: 16, password: '', adminPassword: '',
-    difficulty: 'Regular', mission: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
+    difficulty: 'Regular', mission: '', audience: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
     verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, fastJoin: true, hugePages: false, joinMethod: 'launcher', upnp: false, mods: [], modRoots: [],
     rconEnabled: false, rconPort: 2307, rconPassword: '', remoteHost: '', remotePort: 2302, remotePassword: ''
   };
@@ -52,6 +52,7 @@ export function assertServerExecutable(serverExe, gameExe = '') {
   if (gameExe && normalisePath(gameExe) === normalisePath(serverExe)) throw new AppError('The server and game executables resolve to the same file. Choose different files in Setup.');
   return serverExe;
 }
+export const AUDIENCES = ['self', 'home', 'internet'];
 export function validateSettings(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('Settings must be a JSON object.');
   const base = defaults();
@@ -59,6 +60,13 @@ export function validateSettings(input) {
   const s = { ...base, ...input };
   // Preserve the VPN route in existing 1.2.0 Starlink configurations.
   if (!Object.hasOwn(input, 'starlinkVpn') && input.starlink) s.starlinkVpn = true;
+  // "Who will play?" decides whether the server listens beyond this PC. Settings saved before it
+  // existed are read from the old "Allow incoming game connections" toggle.
+  // An empty audience (the default) is derived from the old toggle as well.
+  if (!s.audience) s.audience = input.starlink ? 'internet' : !input.lan ? 'self' : input.publicIp ? 'internet' : 'home';
+  if (!AUDIENCES.includes(s.audience)) throw new AppError('Choose who will play: just you, people on your home network, or friends elsewhere.');
+  if (s.starlink === true) s.audience = 'internet';
+  s.lan = s.audience !== 'self';
   s.gameExe = executable(s.gameExe, 'Game executable', GAME_EXECUTABLES);
   s.serverExe = executable(s.serverExe, 'Server executable', SERVER_EXECUTABLES);
   if (s.gameExe && s.serverExe && normalisePath(s.gameExe) === normalisePath(s.serverExe)) throw new AppError('Game and server executables must be different files.');
@@ -85,7 +93,7 @@ export function validateSettings(input) {
     throw new AppError('Mission template must look like MyMission.Altis, without paths or the .pbo extension.');
   }
   if (/\.pbo$/i.test(s.mission)) throw new AppError('Remove the .pbo extension from the mission template.');
-  if (s.lan && !s.password.trim()) throw new AppError('LAN mode requires a non-empty join password.');
+  if (s.lan && !s.password.trim()) throw new AppError('Set a join password before letting other people join (Who will play? is not "Just me").');
   s.vpnIp = text(s.vpnIp, 'VPN address', 15).trim();
   if (s.vpnIp && !usableAddress(s.vpnIp)) throw new AppError('VPN address must be a unicast IPv4 address, not localhost or a link-local address.');
   if (s.starlink && s.starlinkVpn && !s.vpnIp) throw new AppError('VPN hosting requires your VPN IPv4 address.');
@@ -127,7 +135,7 @@ export function renderConfig(s, redact = false) {
     `hostname = "${s.serverName}";`, `password = "${secret(s.password)}";`,
     `passwordAdmin = "${secret(s.adminPassword)}";`, `maxPlayers = ${s.maxPlayers};`,
     // upnp: Arma's own automatic router port mapping, only when hosting directly (not loopback or VPN).
-    `loopback = ${s.lan || s.starlink ? 0 : 1};`, `upnp = ${s.upnp && (s.lan || s.starlink) && !(s.starlink && s.starlinkVpn) ? 1 : 0};`,
+    `loopback = ${s.lan || s.starlink ? 0 : 1};`, `upnp = ${s.upnp && s.audience === 'internet' && !(s.starlink && s.starlinkVpn) ? 1 : 0};`,
     `BattlEye = ${s.battleye ? 1 : 0};`, `verifySignatures = ${s.verifySignatures};`,
     'allowedFilePatching = 0;', 'kickDuplicate = 1;',
     `persistent = ${s.persistent ? 1 : 0};`, 'voteMissionPlayers = 1;',

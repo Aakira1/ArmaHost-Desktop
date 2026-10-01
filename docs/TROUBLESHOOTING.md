@@ -105,9 +105,18 @@ Optional (Setup › Session configuration). When the dedicated server exits with
 - The Logs page shows `Opened Arma 3 Launcher: <path> (PID …)` for every launch.
 
 ## Overview shows 127.0.0.1 and "this PC only"
-That's the address while **Allow incoming game connections** is off: only this PC can join.
+127.0.0.1 is a real address, but only this PC can use it. It is shown while **Setup › Who will play?** is **Just me**.
 
-1. Turn that option on and set a join password.
+1. Choose **People on my home network** or **Friends elsewhere**, and set a join password.
 2. Press **Detect my public IP**, or type your router's public IPv4.
 3. Forward UDP ports 2302-2306 to this PC, or try **Automatic port forwarding (UPnP)**.
 4. Save, then restart the server.
+
+## Windows Firewall blocks friends
+- **Setup › Who will play? › Windows Firewall** shows whether this server program is allowed. **Allow this Arma server through Windows Firewall** adds one inbound rule (UDP game ports, this program only, your current network type) after the Windows admin prompt.
+- **BLOCKED** means Windows has a rule that blocks the server program, usually created when someone pressed Cancel on Windows' first-run prompt. Block rules win over allow rules. **Remove the blocking rules** removes only block rules for this exact program, after you confirm.
+- Declined the admin prompt? Nothing changes. Use **Add the firewall rule yourself instead** to see the PowerShell command.
+- **Remove ArmaHost's rule** removes only the rule ArmaHost added. ArmaHost never turns the firewall off.
+
+## The invite checklist says "Not tested"
+ArmaHost only marks a step done when it saw it happen. It can't test from outside your network itself, so "Reachable from outside your network" stays **Not tested** until a friend joins. Press **Test server is up** after they connect, or turn on live monitoring to see their name.

@@ -23,7 +23,7 @@ let logCursor = 0;
 let logEntries = [];
 let toastTimer;
 let presetSignature = '';
-const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword', 'joinMethod'];
+const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword', 'joinMethod', 'audience'];
 const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'upnp', 'starlink', 'starlinkVpn', 'rconEnabled'];
 const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -93,7 +93,7 @@ function renderDetails(next) {
   $('detail-mission').textContent = a.mission || 'Chosen in game';
   const mods = live ? st.active.modList : next.settings.mods.filter(m => m.enabled);
   $('detail-mods').textContent = mods.length ? `${mods.length}: ${mods.map(m => `${m.path.split(/[\\/]/).pop()} (${m.scope})`).join(', ')}` : 'None (vanilla)';
-  $('detail-network').textContent = a.starlink ? a.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : a.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
+  $('detail-network').textContent = a.starlink ? a.starlinkVpn ? 'Friends elsewhere · Starlink VPN' : 'Friends elsewhere · Starlink' : AUDIENCE_LABEL[a.audience || (a.lan ? 'home' : 'self')];
   $('detail-command-title').textContent = live ? 'ACTIVE SERVER CONFIG — command' : 'NEXT SERVER START — command';
   $('detail-command').textContent = (live ? st.command : $('server-preview').textContent) || '—';
   $('detail-error').hidden = !st.lastError; $('detail-error-text').textContent = st.lastError || '';
@@ -151,14 +151,17 @@ function updateControls() {
 }
 function applyState(next, hydrate = false) {
   if (state && next.revision < state.revision) return; // A slow poll must not undo a newer save.
+  const previousPid = state ? state.status.pid || null : undefined;
   state = next;
   if (hydrate || (!dirty && editRevision !== next.revision)) { populate(next.settings, next.revision); setDirty(false); }
   const s = next.status.active || next.settings;
   $('hero-name').textContent = s.serverName;
   $('hero-mission').textContent = s.mission || 'Mission selection opens in game.';
-  $('hero-address').textContent = next.network?.address || `127.0.0.1:${s.port}`;
+  $('hero-address').textContent = next.network?.address || (next.network?.missing === 'publicIp' ? 'Public IP not set' : `127.0.0.1:${s.port}`);
   $('hosting-cta').hidden = next.demo || next.network?.scope !== 'local';
-  $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : s.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
+  $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Friends elsewhere · Starlink VPN' : 'Friends elsewhere · Starlink' : AUDIENCE_LABEL[s.audience || (s.lan ? 'home' : 'self')];
+  const pidChanged = previousPid !== (next.status.pid || null);
+  if (pidChanged || hydrate) queueMicrotask(() => { void refreshInvite(); });
   $('server-status').textContent = (next.demo ? 'DEMO · ' : '') + next.status.state.toUpperCase();
   $('server-status').classList.toggle('running', next.status.state === 'running');
   for (const name of ['failed', 'starting', 'stopping']) $('server-status').classList.toggle(name, next.status.state === name);
@@ -314,7 +317,7 @@ onButton('query-server', async () => {
   const result = await api('/api/server/query', {});
   queriedPid = result.ok ? state?.status.pid : null;
   $('query-result').textContent = result.message; notify(result.message, !result.ok);
-  applyState(await api('/api/state'));
+  applyState(await api('/api/state'));  void refreshInvite();
 });
 onButton('copy-command', async () => { await navigator.clipboard.writeText($('detail-command').textContent); notify('Server command copied (passwords redacted).'); });
 $('error-diagnostics').addEventListener('click', () => $('diagnose-top').click());
@@ -469,19 +472,92 @@ async function refreshHostingDetails() {
   $('vpn-note').textContent = description + (state?.status.pid ? 'Details reflect the running server. ' : '') + result.note;
   return result;
 }
+const AUDIENCE_LABEL = { self: 'Just me · this PC only', home: 'Home network · LAN', internet: 'Friends elsewhere · internet' };
+const AUDIENCE_SUMMARY = {
+  self: 'The server only answers on 127.0.0.1. You can play on this PC; nobody else can connect. Choose another option to let friends join.',
+  home: 'The server accepts connections from your network. Friends on your router or Wi-Fi join with this PC’s LAN address. Set a join password, allow the server through Windows Firewall below, then restart the server.',
+  internet: 'The server accepts connections from the internet. Set a join password, detect your public IPv4, forward the UDP game ports on your router (or try UPnP), allow the server through Windows Firewall below, then restart the server.'
+};
+for (const card of document.querySelectorAll('[data-audience]')) card.addEventListener('click', () => {
+  $('audience').value = card.dataset.audience; setDirty(); renderNetworkDraft();
+  if (card.dataset.audience !== 'self' && !firewallChecked) void withBusy($('firewall-check'), checkFirewall);
+});
 function renderNetworkDraft() {
+  if (!['self', 'home', 'internet'].includes($('audience').value)) $('audience').value = $('lan').checked ? ($('publicIp').value ? 'internet' : 'home') : 'self';
+  if ($('starlink').checked) $('audience').value = 'internet';
+  const audience = $('audience').value;
+  for (const card of document.querySelectorAll('[data-audience]')) card.setAttribute('aria-checked', String(card.dataset.audience === audience));
+  $('lan').checked = audience !== 'self';
+  $('internet-options').hidden = audience !== 'internet';
+  $('firewall-panel').hidden = audience === 'self';
+  $('audience-summary').textContent = AUDIENCE_SUMMARY[audience];
   const starlink = $('starlink').checked;
   const vpn = starlink && $('starlinkVpn').checked;
-  $('network-kind').textContent = starlink ? 'STARLINK' : 'NORMAL NETWORK';
-  $('network-description').textContent = starlink ? vpn ? 'Starlink hosting through an existing VPN.' : 'Direct Starlink hosting with public IPv4. No VPN software required.' : 'Normal network: host on your LAN or directly over the internet.';
+  $('network-kind').textContent = { self: 'JUST ME', home: 'HOME NETWORK', internet: starlink ? 'INTERNET · STARLINK' : 'INTERNET' }[audience];
+  $('network-description').textContent = starlink ? vpn ? 'Starlink hosting through an existing VPN.' : 'Direct Starlink hosting with public IPv4. No VPN software required.' : 'Normal internet connection (not Starlink): friends connect to your public IPv4.';
   $('direct-network').hidden = vpn;
   $('normal-network-steps').hidden = starlink;
   $('starlink-network-steps').hidden = !starlink;
   $('vpn-options').hidden = !starlink;
   $('vpn-fields').hidden = !vpn;
-  $('lan').disabled = starlink;
-  if (starlink) $('lan').checked = true;
 }
+// Windows Firewall helper (Setup › Who will play?).
+let firewallChecked = false;
+function renderFirewall(result) {
+  firewallChecked = true;
+  const badge = $('firewall-badge');
+  const label = !result.supported ? 'NOT AVAILABLE' : result.error ? 'UNKNOWN' : result.blocks?.length ? 'BLOCKED' : result.ok ? 'ALLOWED' : 'NOT ALLOWED';
+  badge.textContent = label; badge.classList.toggle('ready', label === 'ALLOWED');
+  $('firewall-status').textContent = result.error || result.message;
+  const blocks = result.blocks || [];
+  $('firewall-blocks').hidden = !blocks.length;
+  $('firewall-blocks').replaceChildren(...blocks.map(b => { const li = document.createElement('li'); const c = document.createElement('code'); c.textContent = b.displayName; const r = document.createElement('span'); r.className = 'role'; r.textContent = `Block · ${b.profile}`; li.append(c, r); return li; }));
+  $('firewall-remove-blocks').hidden = !blocks.length;
+  for (const id of ['firewall-allow', 'firewall-remove']) $(id).disabled = !result.supported;
+  $('firewall-allow').textContent = result.ok ? 'Allowed ✓ (update rule)' : 'Allow this Arma server through Windows Firewall';
+}
+// Checks the saved server program and port; it never saves the form.
+async function checkFirewall() { renderFirewall(await api('/api/firewall/status', {})); }
+onButton('firewall-check', checkFirewall);
+onButton('firewall-allow', async () => {
+  if (dirty) await save(true);
+  notify('Windows will ask for administrator permission to add the rule…');
+  try { renderFirewall(await api('/api/firewall/allow', {})); notify('Windows Firewall now allows this Arma server.'); }
+  finally { try { renderFirewall(await api('/api/firewall/status', {})); } catch { /* Keep the last result. */ } }
+});
+onButton('firewall-remove', async () => {
+  if (!await confirmAction('Remove ArmaHost’s firewall rule?', 'Friends may no longer be able to reach your server. Windows will ask for administrator permission.', 'Remove rule')) return;
+  renderFirewall(await api('/api/firewall/remove', {})); notify('ArmaHost’s firewall rule was removed.');
+});
+onButton('firewall-remove-blocks', async () => {
+  if (!await confirmAction('Remove the blocking rules?', 'These Windows Firewall rules block this Arma server program (Windows usually creates them when someone pressed Cancel on its first-run prompt). Only rules that block this exact program are removed. Windows will ask for administrator permission.', 'Remove blocking rules')) return;
+  renderFirewall(await api('/api/firewall/remove-blocks', { confirm: true })); notify('Blocking rules removed.');
+});
+// Invite a friend (Overview): built from the running session, with an evidence-only checklist.
+const CHECK_LABEL = { pass: 'DONE', fail: 'PROBLEM', todo: 'TO DO', untested: 'NOT TESTED' };
+async function refreshInvite() {
+  if (!state) return;
+  const running = Boolean(state.status.pid);
+  try {
+    const check = await api('/api/connection/check', {});
+    $('invite-audience').textContent = { self: 'JUST ME', home: 'HOME NETWORK', internet: 'FRIENDS ELSEWHERE' }[check.audience] || '';
+    $('connection-list').replaceChildren(...check.items.map(item => {
+      const li = document.createElement('li'); li.className = item.state;
+      const tag = document.createElement('span'); tag.textContent = CHECK_LABEL[item.state];
+      const body = document.createElement('div'); const title = document.createElement('strong'); title.textContent = item.label; const detail = document.createElement('small'); detail.textContent = item.detail;
+      body.append(title, detail); li.append(tag, body); return li;
+    }));
+    if (check.audience === 'self') { $('invite-intro').textContent = 'Who will play? is “Just me”, so nobody else can join. Change it in Setup to invite friends.'; $('invite-text').textContent = '—'; $('invite-copy').disabled = true; return; }
+    if (!running) { $('invite-intro').textContent = 'Start the server to get an invite for the running session.'; $('invite-text').textContent = '—'; $('invite-copy').disabled = true; return; }
+    const invite = await api('/api/invite', { includePassword: $('invite-password').checked });
+    $('invite-intro').textContent = `Friends join ${invite.address}. Send them this message.`;
+    $('invite-text').textContent = invite.text; $('invite-copy').disabled = false;
+    $('invite-password').disabled = !invite.hasPassword;
+  } catch (error) { $('invite-intro').textContent = error.message; $('invite-text').textContent = '—'; $('invite-copy').disabled = true; }
+}
+$('invite-password').addEventListener('change', () => { void refreshInvite(); });
+onButton('connection-refresh', refreshInvite);
+onButton('invite-copy', async () => { await navigator.clipboard.writeText($('invite-text').textContent); notify($('invite-password').checked ? 'Invite copied, including the join password.' : 'Invite copied. Send the join password separately.'); });
 for (const id of ['starlink', 'starlinkVpn']) $(id).addEventListener('change', renderNetworkDraft);
 onButton('detect-vpn', async () => {
   const result = await refreshHostingDetails();
