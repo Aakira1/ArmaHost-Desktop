@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { AppError } from './config.mjs';
 const execute = promisify(execFile);
 
@@ -31,8 +32,10 @@ if ($rule) { $ports = [string](($rule | Get-NetFirewallPortFilter).LocalPort -jo
 }
 export function allowScript(s, profiles) {
   checkInputs(s);
+  // $ProgressPreference keeps PowerShell's module-loading progress out of the error output.
   const profile = profiles.filter(p => ['Public', 'Private', 'Domain'].includes(p)).join(',') || 'Private';
-  return `try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch { }
+  return `$ProgressPreference = 'SilentlyContinue'
+try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch { }
 try {
   New-NetFirewallRule -DisplayName ${literal(ruleName(s.port))} -Group '${RULE_GROUP}' -Description 'Added by ArmaHost Desktop for the Arma 3 dedicated server. Remove it from ArmaHost Setup.' -Direction Inbound -Action Allow -Protocol UDP -LocalPort '${s.port}-${s.port + 4}' -Program ${literal(s.serverExe)} -Profile '${profile}' -ErrorAction Stop | Out-Null
   exit 0
@@ -69,13 +72,14 @@ export class Firewall {
     } catch (error) {
       const text = `${error.stderr || ''} ${error.message || ''}`;
       if (/cancel/i.test(text)) throw new AppError('The Windows admin prompt was declined, so nothing was changed. You can add the rule yourself with the command shown below.', 409);
-      const reason = String(error.stderr || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      // PowerShell may wrap stderr in CLIXML progress records; keep only the readable message.
+      const reason = String(error.stderr || '').replace(/#<\s*CLIXML/g, '').replace(/<Objs[\s\S]*$/, '').replace(/\s+/g, ' ').trim().slice(0, 300);
       throw new AppError(`Windows Firewall was not changed (${error.code === 3 ? 'Windows refused the rule' : 'the change failed'}${reason ? `: ${reason}` : ''}). You can add the rule yourself with the command shown below.`, 500);
     }
   }
-  async status(s) {
+  async status(input) {
     if (!this.supported()) return { supported: false, message: this.demo ? 'Demo mode: Windows Firewall is not checked.' : 'Windows Firewall checks are only available on Windows.' };
-    checkInputs(s);
+    const s = await this.resolved(input);
     let raw;
     try {
       const { stdout } = await this.powershell(['-Command', statusScript()], { env: { ...process.env, AH_NAME: ruleName(s.port), AH_PROGRAM: path.win32.normalize(s.serverExe) } });
@@ -92,8 +96,11 @@ export class Firewall {
         : raw.exists ? 'An ArmaHost rule exists but is for a different port or program. Press Allow again to update it.'
         : 'No ArmaHost rule yet. Windows may block friends from reaching the server.' };
   }
-  async allow(s) {
+  // Windows Firewall wants the program's real full path (not a short 8.3 form like RUNNER~1).
+  async resolved(s) { checkInputs(s); try { return { ...s, serverExe: await realpath.native(s.serverExe) }; } catch { return s; } }
+  async allow(input) {
     if (!this.supported()) throw new AppError('Windows Firewall changes are only available on Windows.');
+    const s = await this.resolved(input);
     const before = await this.status(s);
     await this.runAsAdmin(allowScript(s, before.profiles || ['Private']));
     const after = await this.status(s);

@@ -75,6 +75,8 @@ test('Windows: the firewall helper adds, confirms and removes its own rule', { s
   const fw = new Firewall();
   if (!(await fw.elevated())) return t.skip('needs an administrator session (the CI runner is one)');
   const dir = await mkdtemp(path.join(os.tmpdir(), 'arma-fw-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  await mkdir(path.join(dir, 'Arma 3 Server'));
+  await copyFile(process.execPath, path.join(dir, 'Arma 3 Server', 'arma3server_x64.exe'));
   const s = { serverExe: path.join(dir, 'Arma 3 Server', 'arma3server_x64.exe'), port: 47302 };
   try {
     const before = await fw.status(s);
