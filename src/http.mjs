@@ -49,7 +49,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
     const snapshot = store.snapshot();
     return { revision: snapshot.revision, settings: snapshot.settings,
       presets: snapshot.presets.map(p => ({ id: p.id, name: p.name, createdAt: p.createdAt })),
-      status: manager.status(), live: monitor.snapshot(), network: hostingInfo(manager.child ? manager.activeSettings : snapshot.settings), demo, platform: process.platform, node: process.version,
+      status: manager.status(), live: monitor.snapshot(), mapStatus: manager.mapSnapshot().status, network: hostingInfo(manager.child ? manager.activeSettings : snapshot.settings), demo, platform: process.platform, node: process.version,
       pendingRestart: Boolean(manager.child && JSON.stringify(manager.activeSettings) !== JSON.stringify(snapshot.settings)),
       paths: { data: dir, profiles: manager.profilesDir, config: manager.configFile } };
   };

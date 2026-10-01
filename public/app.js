@@ -30,6 +30,7 @@ const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&am
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
 const modKey = value => value.toLowerCase().replaceAll('\\', '/').replace(/\/$/, '');
 function notify(message, error = false) {
+  $('toast').title = 'Click to dismiss';
   $('toast').textContent = message; $('toast').classList.toggle('error', error); $('toast').hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, error ? 9500 : 5500);
 }
@@ -40,7 +41,7 @@ function showPage(name) {
   document.querySelectorAll('[data-page]').forEach(button => { button.classList.toggle('active', button.dataset.page === name); button.setAttribute('aria-current', button.dataset.page === name ? 'page' : 'false'); });
   $('page-title').textContent = pages[name][0]; $('page-description').textContent = pages[name][1];
   $('breadcrumb').textContent = name === 'map' ? 'Live map' : name[0].toUpperCase() + name.slice(1);
-  if (name === 'logs') renderLogs();
+  if (name === 'logs') { renderLogs(); unseenProblems = 0; updateNavBadges(); }
   if (name === 'map') liveMap.start(); else liveMap.stop();
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -124,6 +125,22 @@ function validatePaths() {
   for (const [id, message] of Object.entries(errors)) { $(`${id}-error`).hidden = !message; $(`${id}-error`).textContent = message; $(id).classList.toggle('invalid', Boolean(message)); }
 }
 for (const id of ['serverExe', 'gameExe']) $(id).addEventListener('input', validatePaths);
+let unseenProblems = 0;
+function updateNavBadges() {
+  $('nav-log-badge').hidden = !unseenProblems; $('nav-log-badge').textContent = unseenProblems > 99 ? '99+' : String(unseenProblems);
+  $('nav-log-badge').title = `${unseenProblems} new problem line(s) since you last opened Logs`;
+}
+// Persistent status in the top bar so server state is visible from every page.
+function renderTopStatus(next) {
+  const st = next.status, ready = st.pid && st.ready;
+  const label = st.busy ? st.busy.toUpperCase() : ready ? (st.ready.stage === 'mission' ? 'READY' : 'ONLINE') : st.state.toUpperCase();
+  $('top-server-text').textContent = `${next.demo ? 'DEMO · ' : ''}SERVER ${label}${st.pid ? ` · ${duration(st.uptimeSeconds)}` : ''}`;
+  $('top-server').dataset.state = ready ? 'ready' : st.busy ? 'busy' : st.state;
+  $('nav-server-dot').dataset.state = $('top-server').dataset.state;
+  $('top-action').textContent = st.pid ? 'Stop server' : 'Start server';
+  $('top-action').disabled = Boolean(st.busy) || busy || st.state === 'stopping';
+  $('nav-map-badge').hidden = next.mapStatus !== 'live';
+}
 function updateControls() {
   const running = state?.status.state === 'running'; const transitioning = busy || Boolean(state?.status.busy) || shuttingDown;
   $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning || state.status.state === 'stopping';
@@ -144,7 +161,7 @@ function applyState(next, hydrate = false) {
   $('server-status').textContent = (next.demo ? 'DEMO · ' : '') + next.status.state.toUpperCase();
   $('server-status').classList.toggle('running', next.status.state === 'running');
   for (const name of ['failed', 'starting', 'stopping']) $('server-status').classList.toggle(name, next.status.state === name);
-  renderDetails(next);
+  renderDetails(next); renderTopStatus(next);
   $('metric-pid').textContent = next.status.pid || '—';
   $('metric-uptime').textContent = duration(next.status.uptimeSeconds);
   $('metric-mods').textContent = String(next.status.active?.mods ?? next.settings.mods.filter(m => m.enabled).length).padStart(2, '0');
@@ -354,21 +371,28 @@ onButton('save-preset', async () => {
   applyState(await api('/api/presets/create', { name, revision: editRevision }), true);
   $('preset-name').value = ''; notify('Preset saved.');
 });
+// Highlight lines that look like problems so they stand out in long logs.
+function severity(message) {
+  if (/\b(error|failed|failure|fatal|exception|cannot|could not|not found|crash(ed)?|refus(ed|ing)|denied)\b/i.test(message)) return 'error';
+  if (/\b(warning|warn|missing|stale|timeout|timed out|unavailable|not confirmed)\b/i.test(message)) return 'warn';
+  return '';
+}
 function logMarkup(entry) {
-  return `<div class="log-line"><span class="log-time">${escapeText(new Date(entry.time).toLocaleTimeString([], { hour12: false }))}</span><span class="log-source">${escapeText(entry.source.toUpperCase())}</span><span class="log-message">${escapeText(entry.message)}</span></div>`;
+  return `<div class="log-line ${severity(entry.message)}"><span class="log-time">${escapeText(new Date(entry.time).toLocaleTimeString([], { hour12: false }))}</span><span class="log-source">${escapeText(entry.source.toUpperCase())}</span><span class="log-message">${escapeText(entry.message)}</span></div>`;
 }
 function renderLogs() {
   $('mini-log').innerHTML = logEntries.slice(-9).map(logMarkup).join('') || '<p class="muted">No session events yet.</p>';
   $('mini-log').scrollTop = $('mini-log').scrollHeight;
   if ($('log-pause').checked) return;
   const source = $('log-source').value; const filter = $('log-filter').value.toLowerCase();
-  const visible = logEntries.filter(entry => (source === 'all' || entry.source === source) && entry.message.toLowerCase().includes(filter));
+  const problems = $('log-problems').checked;
+  const visible = logEntries.filter(entry => (source === 'all' || entry.source === source) && entry.message.toLowerCase().includes(filter) && (!problems || severity(entry.message)));
   const container = $('full-log'); const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 55;
   container.innerHTML = visible.map(logMarkup).join('') || '<p class="muted">No matching log entries.</p>';
   $('log-count').textContent = `${visible.length} matching lines`;
   if (atBottom) container.scrollTop = container.scrollHeight;
 }
-for (const id of ['log-source', 'log-filter', 'log-pause']) $(id).addEventListener('input', renderLogs);
+for (const id of ['log-source', 'log-filter', 'log-pause', 'log-problems']) $(id).addEventListener('input', renderLogs);
 onButton('export-logs', async () => {
   const value = await api('/api/logs/export');
   const blob = new Blob([value.text], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob);
@@ -381,7 +405,10 @@ async function poll() {
     const result = await api(`/api/logs?after=${logCursor}`);
     if (result.cursor < logCursor) logEntries = [];
     logCursor = result.cursor;
-    if (result.entries.length) { logEntries.push(...result.entries); logEntries = logEntries.slice(-1000); renderLogs(); }
+    if (result.entries.length) {
+      logEntries.push(...result.entries); logEntries = logEntries.slice(-1000); renderLogs();
+      if ($('page-logs').hidden) { unseenProblems += result.entries.filter(e => severity(e.message) === 'error').length; updateNavBadges(); }
+    }
     $('connection').innerHTML = '<i class="dot"></i> Local manager connected'; $('offline-banner').hidden = true;
   } catch { $('connection').textContent = 'Disconnected'; $('offline-banner').hidden = false; }
   finally { polling = false; }
@@ -436,3 +463,15 @@ else {
 }
 
 const liveMap = initMap({ api, apiBlob, notify, isVisible: () => !$('page-map').hidden });
+
+$('toast').addEventListener('click', () => { $('toast').hidden = true; });
+$('top-server').addEventListener('click', () => showPage('overview'));
+$('top-action').addEventListener('click', () => { $(state?.status.pid ? 'stop-server' : 'start-server').click(); });
+// Alt+1..7 switches pages.
+const pageOrder = Object.keys(pages);
+document.addEventListener('keydown', event => {
+  if (!event.altKey || event.ctrlKey || event.metaKey) return;
+  const page = pageOrder[Number(event.key) - 1];
+  if (page) { event.preventDefault(); showPage(page); }
+});
+for (const [index, name] of pageOrder.entries()) document.querySelector(`[data-page="${name}"].nav`)?.setAttribute('title', `${pages[name][0]} (Alt+${index + 1})`);
