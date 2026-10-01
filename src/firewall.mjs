@@ -32,21 +32,18 @@ if ($rule) { $ports = [string](($rule | Get-NetFirewallPortFilter).LocalPort -jo
 export function allowScript(s, profiles) {
   checkInputs(s);
   const profile = profiles.filter(p => ['Public', 'Private', 'Domain'].includes(p)).join(',') || 'Private';
-  return `$ErrorActionPreference = 'Stop'
+  return `try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch { }
 try {
-  Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-  New-NetFirewallRule -DisplayName ${literal(ruleName(s.port))} -Group '${RULE_GROUP}' -Description 'Added by ArmaHost Desktop for the Arma 3 dedicated server. Remove it from ArmaHost Setup.' -Direction Inbound -Action Allow -Protocol UDP -LocalPort '${s.port}-${s.port + 4}' -Program ${literal(s.serverExe)} -Profile '${profile}' | Out-Null
+  New-NetFirewallRule -DisplayName ${literal(ruleName(s.port))} -Group '${RULE_GROUP}' -Description 'Added by ArmaHost Desktop for the Arma 3 dedicated server. Remove it from ArmaHost Setup.' -Direction Inbound -Action Allow -Protocol UDP -LocalPort '${s.port}-${s.port + 4}' -Program ${literal(s.serverExe)} -Profile '${profile}' -ErrorAction Stop | Out-Null
   exit 0
-} catch { exit 3 }`;
+} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
 }
 export function removeScript() {
-  return `$ErrorActionPreference = 'Stop'
-try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; exit 0 } catch { exit 3 }`;
+  return `try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
 }
 export function removeBlocksScript(names) {
   if (!names.length || names.length > 40 || !names.every(n => typeof n === 'string' && n.length > 0 && n.length < 300)) throw new AppError('No block rules to remove.');
-  return `$ErrorActionPreference = 'Stop'
-try { Get-NetFirewallRule -Name ${names.map(literal).join(',')} | Where-Object { [string]$_.Action -eq 'Block' } | Remove-NetFirewallRule; exit 0 } catch { exit 3 }`;
+  return `try { Get-NetFirewallRule -Name ${names.map(literal).join(',')} -ErrorAction Stop | Where-Object { [string]$_.Action -eq 'Block' } | Remove-NetFirewallRule -ErrorAction Stop; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
 }
 const encode = script => Buffer.from(script, 'utf16le').toString('base64');
 
@@ -72,7 +69,8 @@ export class Firewall {
     } catch (error) {
       const text = `${error.stderr || ''} ${error.message || ''}`;
       if (/cancel/i.test(text)) throw new AppError('The Windows admin prompt was declined, so nothing was changed. You can add the rule yourself with the command shown below.', 409);
-      throw new AppError(`Windows Firewall was not changed (${error.code === 3 ? 'Windows refused the rule' : 'the change failed'}). You can add the rule yourself with the command shown below.`, 500);
+      const reason = String(error.stderr || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new AppError(`Windows Firewall was not changed (${error.code === 3 ? 'Windows refused the rule' : 'the change failed'}${reason ? `: ${reason}` : ''}). You can add the rule yourself with the command shown below.`, 500);
     }
   }
   async status(s) {

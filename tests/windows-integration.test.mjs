@@ -23,7 +23,8 @@ async function standIns(t) {
   const exe = name => path.join(name.startsWith('arma3server') ? serverDir : gameDir, name);
   for (const name of ['arma3launcher.exe', 'arma3_x64.exe', 'arma3server_x64.exe']) await copyFile(process.execPath, exe(name));
   const previous = process.env.NODE_OPTIONS;
-  process.env.NODE_OPTIONS = `--require "${keepalive}"`;
+  // NODE_OPTIONS treats backslashes inside quotes as escapes, so pass the path with forward slashes.
+  process.env.NODE_OPTIONS = `--require "${keepalive.replaceAll('\\', '/')}"`;
   const started = [];
   t.after(async () => {
     process.env.NODE_OPTIONS = previous ?? '';
