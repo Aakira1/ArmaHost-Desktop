@@ -97,7 +97,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/discover') return send(200, await discoverInstallations());
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
-        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo));
+        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
         else if (route === 'POST /api/server/start') await manager.start(store.snapshot().settings);

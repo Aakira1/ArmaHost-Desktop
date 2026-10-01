@@ -74,9 +74,24 @@ function populate(settings, revision) {
   renderNetworkDraft();
 }
 function duration(seconds) { return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':'); }
+function renderDetails(next) {
+  const st = next.status; const live = Boolean(st.pid && st.active); const a = st.active || next.settings;
+  $('config-scope').textContent = live ? 'ACTIVE SERVER CONFIG' : 'NEXT SERVER START';
+  $('detail-exe').textContent = st.serverExe || next.settings.serverExe || 'Not configured';
+  $('detail-state').textContent = `${st.pid || '—'} · ${st.state.toUpperCase()}${live ? ` · up ${duration(st.uptimeSeconds)}` : ''}`;
+  $('detail-port').textContent = `UDP ${a.port}–${a.port + 4}${next.settings.rconEnabled ? ` · RCon ${next.settings.rconPort}` : ''}`;
+  $('detail-mission').textContent = a.mission || 'Chosen in game';
+  const mods = live ? st.active.modList : next.settings.mods.filter(m => m.enabled);
+  $('detail-mods').textContent = mods.length ? `${mods.length}: ${mods.map(m => `${m.path.split(/[\\/]/).pop()} (${m.scope})`).join(', ')}` : 'None (vanilla)';
+  $('detail-network').textContent = a.starlink ? a.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : a.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
+  $('detail-command-title').textContent = live ? 'ACTIVE SERVER CONFIG — command' : 'NEXT SERVER START — command';
+  $('detail-command').textContent = (live ? st.command : $('server-preview').textContent) || '—';
+  $('detail-error').hidden = !st.lastError; $('detail-error-text').textContent = st.lastError || '';
+  $('detail-diff').hidden = !next.pendingRestart;
+}
 function updateControls() {
   const running = state?.status.state === 'running'; const transitioning = busy || Boolean(state?.status.busy) || shuttingDown;
-  $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning;
+  $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning || state.status.state === 'stopping';
   for (const id of ['join-game', 'restart-server', 'stop-server']) $(id).disabled = !running || transitioning;
   $('join-remote').disabled = !state || transitioning;
   if (state?.live) renderLive(state.live);
@@ -92,6 +107,8 @@ function applyState(next, hydrate = false) {
   $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : s.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
   $('server-status').textContent = (next.demo ? 'DEMO · ' : '') + next.status.state.toUpperCase();
   $('server-status').classList.toggle('running', next.status.state === 'running');
+  for (const name of ['failed', 'starting', 'stopping']) $('server-status').classList.toggle(name, next.status.state === name);
+  renderDetails(next);
   $('metric-pid').textContent = next.status.pid || '—';
   $('metric-uptime').textContent = duration(next.status.uptimeSeconds);
   $('metric-mods').textContent = String(next.status.active?.mods ?? next.settings.mods.filter(m => m.enabled).length).padStart(2, '0');
@@ -103,7 +120,7 @@ function applyState(next, hydrate = false) {
   for (const [type, key] of [['game', 'gameExe'], ['server', 'serverExe']]) {
     $(`${type}-check`).classList.toggle('checked', Boolean(next.settings[key]));
     $(`${type}-check`).textContent = next.settings[key] ? '✓' : type === 'game' ? '01' : '02';
-    $(`${type}-check-note`).textContent = next.settings[key] ? 'Path saved · run diagnostics to verify.' : type === 'game' ? 'Select your Arma 3 executable.' : 'Select the dedicated server.';
+    $(`${type}-check-note`).textContent = next.settings[key] ? 'Path saved · run diagnostics to verify.' : type === 'game' ? 'Optional · only for Launch Game & Join.' : 'Select the dedicated server.';
   }
   const signature = JSON.stringify(next.presets);
   if (signature !== presetSignature) { presetSignature = signature; renderPresets(); }
@@ -126,6 +143,7 @@ function renderLive(live) {
 async function refreshPreview() {
   const value = await api('/api/preview');
   $('server-preview').textContent = value.server; $('client-preview').textContent = value.client; $('config-preview').textContent = value.config;
+  if (state) renderDetails(state);
 }
 async function save(quiet = false) {
   const value = await api('/api/config', { settings: collectSettings(), revision: editRevision });
@@ -158,7 +176,7 @@ window.addEventListener('beforeunload', event => { if (dirty && !shuttingDown) {
 $('settings-form').addEventListener('submit', event => { event.preventDefault(); void withBusy(event.submitter, () => save()); });
 for (const id of ['save-all', 'save-mission', 'save-mods']) onButton(id, () => save());
 onButton('discard', async () => { if (await confirmAction('Discard unsaved edits?', 'This reloads the last saved configuration. The running server is not changed.', 'Discard edits')) { applyState(await api('/api/state'), true); } });
-onButton('start-server', async () => { if (dirty) await save(true); applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Server process started. Check its logs before joining.'); });
+onButton('start-server', async () => { if (dirty) await save(true); applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Dedicated server process started (the game was not launched). Check its logs before joining.'); });
 onButton('stop-server', async () => {
   if (!await confirmAction('Stop the server?', 'This terminates the managed server process and may lose unsaved mission progress. Save in the mission first. Your game is not closed.', 'Stop server')) return;
   applyState(await api('/api/server/stop', {})); notify('Managed server process stopped.');

@@ -34,3 +34,7 @@
 #vpn-options { margin:20px 0; }
 #direct-network h3 { margin-top:20px; }
 .session-role { display:flex; gap:10px; margin-bottom:22px; }
+
+.process-label{margin:18px 0 8px;font-size:11px;letter-spacing:.08em;color:var(--muted,#8a94a6)}.process-label code{letter-spacing:0}.game-label{margin-top:22px;padding-top:14px;border-top:1px dashed var(--line)}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:12px 0}.detail-grid dt{font-size:11px;letter-spacing:.08em;color:var(--muted,#8a94a6)}.detail-grid dd{margin:4px 0 0;word-break:break-all}
+#detail-command{white-space:pre-wrap;word-break:break-all}.state-badge.failed{color:#ff7b72;border-color:#ff7b72}.state-badge.starting,.state-badge.stopping{color:#e3b341}

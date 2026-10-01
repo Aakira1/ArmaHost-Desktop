@@ -39,6 +39,19 @@ function executable(value, label, allowed) {
   }
   return result;
 }
+export const SERVER_EXECUTABLES = ['arma3server_x64.exe', 'arma3server.exe'];
+export const GAME_EXECUTABLES = ['arma3_x64.exe', 'arma3.exe'];
+const normalisePath = value => path.win32.normalize(String(value)).toLowerCase();
+// Last line of defence before spawning: only a dedicated-server binary may ever be launched by Start.
+export function assertServerExecutable(serverExe, gameExe = '') {
+  if (typeof serverExe !== 'string' || !serverExe.trim()) throw new AppError('No dedicated server executable is configured. Choose arma3server_x64.exe under Dedicated Server Installation in Setup and save.');
+  const name = path.win32.basename(serverExe).toLowerCase();
+  if (!SERVER_EXECUTABLES.includes(name)) {
+    throw new AppError(`Refusing to start "${path.win32.basename(serverExe)}" as the dedicated server. Start only launches ${SERVER_EXECUTABLES.join(' or ')}; the game (${GAME_EXECUTABLES.join(' / ')}) is launched separately by Join.`);
+  }
+  if (gameExe && normalisePath(gameExe) === normalisePath(serverExe)) throw new AppError('The server and game executables resolve to the same file. Choose different files in Setup.');
+  return serverExe;
+}
 export function validateSettings(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('Settings must be a JSON object.');
   const base = defaults();
@@ -46,8 +59,9 @@ export function validateSettings(input) {
   const s = { ...base, ...input };
   // Preserve the VPN route in existing 1.2.0 Starlink configurations.
   if (!Object.hasOwn(input, 'starlinkVpn') && input.starlink) s.starlinkVpn = true;
-  s.gameExe = executable(s.gameExe, 'Game executable', ['arma3_x64.exe', 'arma3.exe']);
-  s.serverExe = executable(s.serverExe, 'Server executable', ['arma3server_x64.exe', 'arma3server.exe']);
+  s.gameExe = executable(s.gameExe, 'Game executable', GAME_EXECUTABLES);
+  s.serverExe = executable(s.serverExe, 'Server executable', SERVER_EXECUTABLES);
+  if (s.gameExe && s.serverExe && normalisePath(s.gameExe) === normalisePath(s.serverExe)) throw new AppError('Game and server executables must be different files.');
   s.serverName = text(s.serverName, 'Server name', 100, false).trim();
   s.password = text(s.password, 'Join password', 64);
   s.adminPassword = text(s.adminPassword, 'Admin password', 64);
