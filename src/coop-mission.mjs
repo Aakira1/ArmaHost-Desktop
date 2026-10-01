@@ -23,6 +23,9 @@ export function validateCoopOptions({ world, slots = 8, zeus = true, arsenal = t
   return { world: entry.world, label: entry.label, slots, zeus: zeus === true, arsenal: arsenal === true };
 }
 
+// addons[] stays empty on purpose: Arma works out what an unpacked mission needs from the classes it
+// uses, and a declared add-on name that doesn't match the loaded data stops the mission with
+// "dependent on downloadable content that has been deleted" (seen with A3_Characters_F in 1.8.1).
 function missionSqm({ world, label, slots }) {
   const groups = [];
   for (let left = slots; left > 0; left -= 8) groups.push(Math.min(8, left));
@@ -82,21 +85,6 @@ binarizationWanted=0;
 sourceName="ArmaHost_Coop";
 addons[]=
 {
-	"A3_Characters_F"
-};
-class AddonsMetaData
-{
-	class List
-	{
-		items=1;
-		class Item0
-		{
-			className="A3_Characters_F";
-			name="Arma 3 - Characters and Clothing";
-			author="Bohemia Interactive";
-			url="https://www.arma3.com";
-		};
-	};
 };
 randomSeed=1337;
 class ScenarioData
@@ -223,7 +211,7 @@ export function buildCoopMission(options) {
     files: {
       'mission.sqm': missionSqm(o), 'description.ext': descriptionExt(o),
       'initServer.sqf': initServer(o), 'initPlayerLocal.sqf': initPlayerLocal(o),
-      [COOP_MARKER]: `Created by ArmaHost Desktop. ArmaHost may replace this folder when you recreate the co-op starter.\n${JSON.stringify({ world: o.world, slots: o.slots, zeus: o.zeus, arsenal: o.arsenal })}\n`
+      [COOP_MARKER]: `Created by ArmaHost Desktop. ArmaHost may replace this folder when you recreate the co-op starter.\n${JSON.stringify({ format: 2, world: o.world, slots: o.slots, zeus: o.zeus, arsenal: o.arsenal })}\n`
     }
   };
 }
