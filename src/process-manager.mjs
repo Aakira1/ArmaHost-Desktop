@@ -12,6 +12,8 @@ import { isFile, isDirectory } from './discovery.mjs';
 import { RptTail } from './logs.mjs';
 import { hostingInfo, bindAddress, gameAddress } from './network.mjs';
 import { queryServer } from './query.mjs';
+import { LiveMap } from './live-map.mjs';
+import { writeMapAddon } from './map-addon.mjs';
 import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -66,9 +68,11 @@ export class ProcessManager {
     this.profilesDir = path.join(dir, 'profiles'); this.tailTimer = null;
     this.battleyeDir = path.join(dir, 'runtime', 'BattlEye');
     this.sessionFile = path.join(dir, 'runtime', 'server-session.json');
+    this.mapAddonDir = path.join(dir, 'runtime', '@ArmaHostMap'); this.liveMap = new LiveMap();
   }
   startLogTail() {
     const rpt = new RptTail(this.profilesDir, this.logs, this.startedAt - 1000);
+    rpt.filter = line => this.liveMap.ingest(line); // AHMAP frames feed the map, not the log
     const consoleTail = new RptTail(path.dirname(this.configFile), this.logs, this.startedAt - 1000, /^server-console\.log$/i, 'server');
     this.logTails = [rpt, consoleTail];
     void rpt.poll(); void consoleTail.poll();
@@ -154,8 +158,13 @@ export class ProcessManager {
       await atomicWrite(path.join(this.battleyeDir, 'BEServer_x64.cfg'), renderBattleye(s));
       await atomicWrite(path.join(this.battleyeDir, 'BEServer.cfg'), renderBattleye(s));
     }
+    if (s.liveMap && !this.demo) {
+      serverArgs(s, this); // validates the addon path before anything is written
+      await writeMapAddon(this.mapAddonDir, s.liveMapInterval);
+      this.logs.add('Live map: loading the ArmaHost server-only map addon (-serverMod).');
+    }
     await atomicWrite(this.configFile, renderConfig(s));
-    this.state = 'starting'; this.lastError = null; this.lastExit = null; this.ready = null;
+    this.state = 'starting'; this.lastError = null; this.lastExit = null; this.ready = null; this.liveMap.reset();
     const argv = serverArgs(s, this);
     if (argv.join(' ').length > 28000) { this.state = 'stopped'; throw new AppError('Launch arguments are too long. Reduce mod count or shorten folder paths.'); }
     if (this.demo) this.logs.add('DEMO launch requested — no game files will be executed.');
@@ -179,7 +188,7 @@ export class ProcessManager {
       stream.setEncoding('utf8');
       stream.on('data', chunk => {
         const lines = (pending + chunk).split(/\r?\n/); pending = lines.pop().slice(-8192);
-        for (const line of lines) this.logs.add(line, 'server');
+        for (const line of lines) if (!this.liveMap.ingest(line)) this.logs.add(line, 'server');
       });
       stream.on('end', () => { if (pending) this.logs.add(pending, 'server'); });
     };
@@ -266,6 +275,7 @@ export class ProcessManager {
     this.restartTimer.unref?.();
   }
   cancelAutoRestart() { clearTimeout(this.restartTimer); this.restartTimer = null; }
+  mapSnapshot() { return this.liveMap.snapshot({ running: Boolean(this.child), enabled: Boolean(this.activeSettings?.liveMap), demo: this.demo }); }
   async query() {
     const s = this.child ? this.activeSettings : null;
     if (!s) throw new AppError('Start the dedicated server first.', 409);

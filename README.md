@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.3.3
+# ArmaHost Desktop 1.4.0
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.4.0:** new Live map page showing players, AI, vehicles and markers from your server. See [Live map](docs/LIVE-MAP.md).
 
 **1.3.2:** Start Dedicated Server launches only the Arma 3 server process; the game is launched separately by Launch Game & Join. See [release notes](docs/RELEASE-NOTES-1.3.2.md).
 

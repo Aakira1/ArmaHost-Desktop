@@ -9,7 +9,7 @@ export function defaults() {
     gameExe: '', serverExe: '', serverName: 'Arma 3 Local Operations',
     port: 2302, maxPlayers: 16, password: '', adminPassword: '',
     difficulty: 'Regular', mission: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
-    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, mods: [], modRoots: [],
+    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, mods: [], modRoots: [],
     rconEnabled: false, rconPort: 2307, rconPassword: '', remoteHost: '', remotePort: 2302, remotePassword: ''
   };
 }
@@ -75,7 +75,7 @@ export function validateSettings(input) {
   for (const [key, min, max] of [['port', 1024, 65531], ['maxPlayers', 1, 128]]) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new AppError(`${key} must be a whole number from ${min} to ${max}.`);
   }
-  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'starlink', 'starlinkVpn', 'rconEnabled']) {
+  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'starlink', 'starlinkVpn', 'rconEnabled']) {
     if (typeof s[key] !== 'boolean') throw new AppError(`${key} must be true or false.`);
   }
   if (![0, 2].includes(s.verifySignatures)) throw new AppError('Signature verification must be 0 or 2.');
@@ -100,6 +100,7 @@ export function validateSettings(input) {
     if (s.rconPassword.length < 12) throw new AppError('RCon password must contain at least 12 characters.');
     if (s.rconPort >= s.port && s.rconPort <= s.port + 4) throw new AppError('RCon port must be outside the five game UDP ports.');
   }
+  if (!Number.isInteger(s.liveMapInterval) || s.liveMapInterval < 2 || s.liveMapInterval > 30) throw new AppError('Live map update interval must be a whole number from 2 to 30 seconds.');
   if (s.autoInit && !s.mission) throw new AppError('Auto-initialise requires a mission template.');
   if (s.autoInit && !s.persistent) throw new AppError('Auto-initialise requires persistent mode.');
   if (!Array.isArray(s.mods) || s.mods.length > 150) throw new AppError('Use at most 150 mod folders.');
@@ -136,17 +137,18 @@ export function renderConfig(s, redact = false) {
   lines.push('};', '');
   return lines.join('\r\n');
 }
-function modArgs(s, client) {
+function modArgs(s, client, extraServerMods = []) {
   const shared = s.mods.filter(m => m.enabled && (m.scope === 'shared' || (client && m.scope === 'client'))).map(m => m.path);
-  const server = s.mods.filter(m => m.enabled && m.scope === 'server').map(m => m.path);
+  const server = [...s.mods.filter(m => m.enabled && m.scope === 'server').map(m => m.path), ...extraServerMods];
   return [...(shared.length ? [`-mod=${shared.join(';')}`] : []), ...(!client && server.length ? [`-serverMod=${server.join(';')}`] : [])];
 }
 export function renderBattleye(s) {
   return `RConPassword ${s.rconPassword}\r\nRConPort ${s.rconPort}\r\nRConIP 127.0.0.1\r\n`;
 }
-export function serverArgs(s, { configFile, profilesDir, battleyeDir = path.join(profilesDir, 'BattlEye') }) {
+export function serverArgs(s, { configFile, profilesDir, battleyeDir = path.join(profilesDir, 'BattlEye'), mapAddonDir = null }) {
+  if (s.liveMap && mapAddonDir?.includes(';')) throw new AppError('The app data folder path contains a semicolon, which Arma cannot load as a mod path. Turn off Live map or move the app data.');
   return [`-config=${configFile}`, `-profiles=${profilesDir}`, '-name=LocalHost', `-port=${s.port}`,
-    `-ip=${bindAddress(s)}`, ...(s.rconEnabled ? [`-BEpath=${battleyeDir}`] : []), ...(s.autoInit ? ['-autoInit'] : []), ...modArgs(s, false)];
+    `-ip=${bindAddress(s)}`, ...(s.rconEnabled ? [`-BEpath=${battleyeDir}`] : []), ...(s.autoInit ? ['-autoInit'] : []), ...modArgs(s, false, s.liveMap && mapAddonDir ? [mapAddonDir] : [])];
 }
 export function clientArgs(s, connection = { host: gameAddress(s), port: s.port, password: s.password }) {
   return ['-noSplash', '-skipIntro', `-connect=${connection.host}`, `-port=${connection.port}`,
