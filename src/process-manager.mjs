@@ -10,10 +10,25 @@ import { AppError, assertServerExecutable, validateSettings, renderConfig, rende
 import { atomicWrite } from './store.mjs';
 import { isFile, isDirectory } from './discovery.mjs';
 import { RptTail } from './logs.mjs';
-import { hostingInfo, bindAddress } from './network.mjs';
+import { hostingInfo, bindAddress, gameAddress } from './network.mjs';
+import { queryServer } from './query.mjs';
 import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Resolves true if the child closes within ms; never leaves a timer behind.
+function waitForClose(child, ms) {
+  return new Promise(resolve => {
+    const done = closed => { clearTimeout(timer); child.off('close', onClose); resolve(closed); };
+    const onClose = () => done(true);
+    const timer = setTimeout(() => done(false), ms);
+    child.once('close', onClose);
+  });
+}
+// Arma server log lines that establish readiness. Process state alone never does.
+const READY_MARKERS = [
+  { stage: 'mission', label: 'Mission started', pattern: /\bGame started\b/i },
+  { stage: 'online', label: 'Server online (waiting for mission/players)', pattern: /\bHost identity created\b|\bConnected to Steam servers\b/i }
+];
 async function checkUdpPorts(s) {
   const sockets = [];
   try {
@@ -29,7 +44,10 @@ async function checkUdpPorts(s) {
 export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
-    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, platform: process.platform, startupGraceMs: demo ? 0 : 2500, ...deps };
+    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
+      gracefulStopMs: 15000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
+    this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false;
+    logs?.listeners?.add(entry => this.observe(entry));
     this.dir = dir; this.logs = logs; this.demo = demo; this.child = null;
     this.state = 'stopped'; this.busy = null; this.startedAt = null;
     this.activeSettings = null; this.lastExit = null; this.lastError = null; this.lastJoin = 0;
@@ -61,6 +79,13 @@ export class ProcessManager {
     this.logs.setSecrets([s.password, s.adminPassword, s.rconPassword]);
     this.logs.add(`Reconnected to managed server PID ${child.pid} after desktop restart.`);
   }
+  observe(entry) {
+    if (!this.child || !['server', 'rpt'].includes(entry.source) || this.ready?.stage === 'mission') return;
+    const marker = READY_MARKERS.find(m => m.pattern.test(entry.message));
+    if (!marker || (this.ready && marker.stage === 'online')) return;
+    this.ready = { stage: marker.stage, label: marker.label, line: entry.message.slice(0, 200), at: entry.time };
+    this.logs.add(`Readiness from server log: ${marker.label}.`);
+  }
   drainLogs() { return Promise.all((this.logTails || []).map(async tail => { await tail.poll(); await tail.poll(); })); }
   status() {
     const s = this.child ? this.activeSettings : null;
@@ -72,7 +97,8 @@ export class ProcessManager {
       active: s ? { serverExe: s.serverExe, serverName: s.serverName, port: s.port, mission: s.mission, lan: s.lan, starlink: s.starlink, vpnIp: s.vpnIp, starlinkVpn: s.starlinkVpn, publicIp: s.publicIp,
         maxPlayers: s.maxPlayers, mods: s.mods.filter(m => m.enabled).length,
         modList: s.mods.filter(m => m.enabled).map(m => ({ path: m.path, scope: m.scope })), battleye: s.battleye, rconEnabled: s.rconEnabled } : null,
-      readiness: this.demo ? 'Demo only — no game server.' : 'Process state only; game readiness is not queried. Check the RPT log and in-game server browser.'
+      ready: this.child ? this.ready : null, autoRestartPending: Boolean(this.restartTimer),
+      readiness: this.demo ? 'Demo only — no game server.' : this.child && this.ready ? `${this.ready.label} (seen in the server log).` : 'Process running; the server log has not yet shown it online. Use Test server is up to query it.'
     };
   }
   async perform(action, fn) {
@@ -118,7 +144,7 @@ export class ProcessManager {
       await atomicWrite(path.join(this.battleyeDir, 'BEServer.cfg'), renderBattleye(s));
     }
     await atomicWrite(this.configFile, renderConfig(s));
-    this.state = 'starting'; this.lastError = null; this.lastExit = null;
+    this.state = 'starting'; this.lastError = null; this.lastExit = null; this.ready = null;
     const argv = serverArgs(s, this);
     if (argv.join(' ').length > 28000) { this.state = 'stopped'; throw new AppError('Launch arguments are too long. Reduce mod count or shorten folder paths.'); }
     if (this.demo) this.logs.add('DEMO launch requested — no game files will be executed.');
@@ -153,13 +179,15 @@ export class ProcessManager {
       clearInterval(this.tailTimer); this.tailTimer = null;
       clearInterval(this.logTimer); this.logTimer = null;
       this.logDrain = this.drainLogs();
-      const unexpected = this.state === 'starting' || (this.state === 'running' && code !== 0 && code !== null);
+      const crashed = this.state === 'running' && code !== 0 && code !== null;
+      const unexpected = this.state === 'starting' || crashed;
       this.child = null; this.state = unexpected ? 'failed' : 'stopped';
       this.lastExit = { code, signal, time: new Date().toISOString() };
       if (unexpected) this.lastError = `Dedicated server exited unexpectedly (exit code ${code ?? 'none'}, signal ${signal ?? 'none'}).`;
       this.logs.add(`Managed process exited (code=${code ?? 'none'}, signal=${signal ?? 'none'}).`);
-      this.startedAt = null;
+      this.startedAt = null; this.ready = null;
       void unlink(this.sessionFile).catch(() => {});
+      if (crashed && this.activeSettings?.autoRestart) this.scheduleAutoRestart(this.activeSettings);
     });
     const fail = (message, status = 502) => {
       clearInterval(this.logTimer); this.logTimer = null;
@@ -204,12 +232,57 @@ export class ProcessManager {
       return text ? ` Last output: ${text.slice(-400)}` : '';
     } catch { return ''; }
   }
-  async stop() { return this.perform('stopping', () => this.stopInternal()); }
+  // Opt-in crash recovery: restarts only the dedicated server, a bounded number of times.
+  scheduleAutoRestart(settings) {
+    if (this.closing || this.restartTimer) return;
+    const now = Date.now();
+    this.restartTimes = this.restartTimes.filter(time => now - time < this.deps.autoRestartWindowMs);
+    if (this.restartTimes.length >= this.deps.autoRestartLimit) {
+      this.state = 'failed';
+      this.lastError = `Dedicated server crashed ${this.restartTimes.length + 1} times in ${Math.round(this.deps.autoRestartWindowMs / 60000)} minutes. Auto-restart gave up; check the server log and diagnostics.`;
+      this.logs.add(this.lastError); return;
+    }
+    this.restartTimes.push(now);
+    this.logs.add(`Dedicated server crashed. Auto-restart attempt ${this.restartTimes.length} of ${this.deps.autoRestartLimit} in ${Math.round(this.deps.autoRestartDelayMs / 1000)} s.`);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      if (this.closing || this.child) return;
+      void this.perform('restarting', () => this.startInternal(settings)).then(() => this.logs.add('Auto-restart: dedicated server is running again.')).catch(error => {
+        this.logs.add(`Auto-restart failed: ${error.message}`);
+        if (error.status !== 409) this.scheduleAutoRestart(settings);
+      });
+    }, this.deps.autoRestartDelayMs);
+    this.restartTimer.unref?.();
+  }
+  cancelAutoRestart() { clearTimeout(this.restartTimer); this.restartTimer = null; }
+  async query() {
+    const s = this.child ? this.activeSettings : null;
+    if (!s) throw new AppError('Start the dedicated server first.', 409);
+    if (this.demo) return { ok: true, demo: true, message: 'Demo only: no Arma server exists to query.' };
+    const host = gameAddress(s); // loopback, or the VPN address the server is bound to
+    try {
+      const info = await this.deps.queryServer(host, s.port + 1);
+      if (!this.ready) this.ready = { stage: 'online', label: 'Server online (answered a server query)', line: '', at: new Date().toISOString() };
+      return { ok: true, ...info, message: `Server is up: "${info.name}" answered on ${host}:${s.port + 1} in ${info.latencyMs} ms · ${info.players}/${info.maxPlayers} players · ${info.map || 'no map yet'}.` };
+    } catch (error) {
+      return { ok: false, host, port: s.port + 1, message: `${error.message} The server may still be loading (this can take a minute, longer with mods), or it crashed — check the log.` };
+    }
+  }
+  async stop() { this.cancelAutoRestart(); return this.perform('stopping', () => this.stopInternal()); }
   async stopInternal() {
     const child = this.child;
-    if (!child) return this.status();
+    if (!child) { if (this.state === 'failed') this.state = 'stopped'; return this.status(); }
     this.state = 'stopping';
-    this.logs.add('Stopping the owned server process. This is process termination, not an in-game save or graceful RCON shutdown.');
+    if (this.gracefulStop && !this.demo && this.activeSettings?.rconEnabled) {
+      let sent = false;
+      try { sent = await this.gracefulStop(); } catch (error) { this.logs.add(`Graceful shutdown failed: ${error.message}`); }
+      if (sent) {
+        this.logs.add('Sent #shutdown over BattlEye RCon; waiting for the server to exit.');
+        if (this.child !== child || await waitForClose(child, this.deps.gracefulStopMs)) { await this.logDrain; return this.status(); }
+        this.logs.add('Server did not exit after #shutdown; terminating the process.');
+      }
+    }
+    this.logs.add('Stopping the owned server process. This is process termination, not an in-game save.');
     await new Promise((resolve, reject) => {
       let forceTimer; let timeout;
       const cleanup = () => { clearTimeout(forceTimer); clearTimeout(timeout); child.off('close', done); };
@@ -259,6 +332,7 @@ export class ProcessManager {
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
   }
   async close({ leaveRunning = false } = {}) {
+    this.closing = true; this.cancelAutoRestart();
     while (this.busy) await sleep(50);
     if (this.child && (!leaveRunning || this.demo)) await this.stop();
     clearInterval(this.tailTimer);

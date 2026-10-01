@@ -34,19 +34,24 @@
       "src/**/*",
       "public/**/*",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "build/icon.png"
     ],
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true,
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "artifactName": "ArmaHost.Desktop.Setup.${version}.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "portable": {
       "artifactName": "ArmaHost-Desktop-Portable-${version}.exe"

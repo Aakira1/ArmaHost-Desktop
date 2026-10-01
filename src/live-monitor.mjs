@@ -81,5 +81,17 @@ export class LiveMonitor {
       throw new AppError(this.logs.scrub(error.message), error.status || 502);
     }
   }
+  // Ask the server to shut itself down over BattlEye RCon. Resolves false when that is not possible.
+  async shutdown(timeout = 4000) {
+    const s = this.sync();
+    if (this.manager.demo || this.closed || !this.child || !s?.rconEnabled || !this.client) return false;
+    let timer;
+    try {
+      await Promise.race([this.client.shutdown(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('RCon did not acknowledge #shutdown.')), timeout); })]);
+      this.event('shutdown', 'RCon acknowledged #shutdown.');
+      return true;
+    } catch (error) { this.logs.add(`Graceful shutdown unavailable: ${this.logs.scrub(error.message)}`); return false; }
+    finally { clearTimeout(timer); }
+  }
   close() { this.closed = true; clearInterval(this.timer); this.client?.close(); this.client = null; }
 }

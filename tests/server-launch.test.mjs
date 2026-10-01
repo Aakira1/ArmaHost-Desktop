@@ -180,3 +180,77 @@ test('diagnostics separate server and game requirements and give actionable erro
     assert.equal(result.canStart, false);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('Stop tries RCon #shutdown first and only kills if the server does not exit', () => fixture(async ({ manager, s, children }) => {
+  await manager.start({ ...s, rconEnabled: false });
+  let asked = 0; manager.gracefulStop = async () => { asked++; return true; };
+  await manager.stop();
+  assert.equal(asked, 0, 'no RCon: straight to process stop');
+  manager.deps.gracefulStopMs = 50;
+  manager.activeSettings = null;
+  await manager.start(s); manager.activeSettings.rconEnabled = true;
+  let killed = 0; const child = manager.child; const kill = child.kill; child.kill = sig => { killed++; kill(sig); };
+  manager.gracefulStop = async () => { asked++; setTimeout(() => child.emit('close', 0, null), 5); return true; };
+  await manager.stop();
+  assert.equal(asked, 1); assert.equal(killed, 0); assert.equal(manager.status().state, 'stopped');
+  await manager.start(s); manager.activeSettings.rconEnabled = true;
+  const stubborn = manager.child; let forced = 0; const original = stubborn.kill; stubborn.kill = sig => { forced++; original(sig); };
+  manager.gracefulStop = async () => true;
+  await manager.stop();
+  assert.ok(forced >= 1); assert.equal(manager.status().state, 'stopped'); assert.equal(children.length, 3);
+}));
+
+test('readiness is only reported after the server log shows it, and resets on restart', () => fixture(async ({ manager, s, logs }) => {
+  await manager.start(s);
+  assert.equal(manager.status().ready, null);
+  logs.add('11:00:00 Host identity created.', 'rpt');
+  assert.equal(manager.status().ready.stage, 'online');
+  logs.add('11:00:05 Game started.', 'rpt');
+  assert.equal(manager.status().ready.stage, 'mission');
+  logs.add('Game started.', 'app');
+  await manager.restart(s);
+  assert.equal(manager.status().ready, null);
+  logs.add('Game started.', 'app');
+  assert.equal(manager.status().ready, null, 'app messages never count as readiness');
+}));
+
+test('Test server is up queries the Steam query port and reports failures honestly', () => fixture(async ({ manager, s }) => {
+  await assert.rejects(manager.query(), /Start the dedicated server first/);
+  const calls = [];
+  manager.deps.queryServer = async (host, port) => { calls.push([host, port]); return { name: 'Ops', map: 'Altis', players: 1, maxPlayers: 16, latencyMs: 4 }; };
+  await manager.start(s);
+  const up = await manager.query();
+  assert.equal(up.ok, true); assert.deepEqual(calls[0], ['127.0.0.1', s.port + 1]); assert.match(up.message, /Server is up.*Ops.*1\/16/);
+  assert.equal(manager.status().ready.stage, 'online');
+  manager.deps.queryServer = async () => { throw new Error('No reply from 127.0.0.1'); };
+  const down = await manager.query();
+  assert.equal(down.ok, false); assert.match(down.message, /No reply.*loading/);
+}));
+
+test('auto-restart relaunches only the dedicated server after a crash, with a limit', () => fixture(async ({ manager, s, spawns, gameCalls, serverExe }) => {
+  Object.assign(manager.deps, { autoRestartDelayMs: 10, autoRestartLimit: 2 });
+  await manager.start({ ...s, autoRestart: true });
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async check => { for (let i = 0; i < 100 && !check(); i++) await wait(10); };
+  manager.child.emit('close', 3221225477, null);
+  await until(() => manager.status().state === 'running' && spawns.length === 2);
+  assert.equal(spawns.length, 2); assert.ok(spawns.every(c => c.exe === serverExe)); assert.equal(gameCalls.length, 0);
+  manager.child.emit('close', 1, null);
+  await until(() => manager.status().state === 'running' && spawns.length === 3);
+  manager.child.emit('close', 1, null);
+  await wait(60);
+  assert.equal(spawns.length, 3); assert.equal(manager.status().state, 'failed'); assert.match(manager.status().lastError, /gave up/);
+}));
+
+test('auto-restart stays off by default, on clean exits and after an explicit stop', () => fixture(async ({ manager, s, spawns }) => {
+  manager.deps.autoRestartDelayMs = 10;
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  await manager.start(s); manager.child.emit('close', 1, null); await wait(40);
+  assert.equal(spawns.length, 1); assert.equal(manager.status().state, 'failed');
+  await manager.start({ ...s, autoRestart: true }); manager.child.emit('close', 0, null); await wait(40);
+  assert.equal(spawns.length, 2); assert.equal(manager.status().state, 'stopped');
+  await manager.start({ ...s, autoRestart: true }); await manager.stop(); await wait(40);
+  assert.equal(spawns.length, 3); assert.equal(manager.status().state, 'stopped');
+  assert.equal(validateSettings({ serverName: 'Legacy' }).autoRestart, false);
+  assert.throws(() => validateSettings({ ...defaults(), autoRestart: 'yes' }), /autoRestart/);
+}));

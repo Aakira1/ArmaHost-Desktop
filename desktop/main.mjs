@@ -52,7 +52,7 @@ async function boot() {
   backend = await createApp({ root, dir, demo, port: 0, onQuit: finishQuit });
   window = new BrowserWindow({
     width: Math.max(1000, Math.min(Number(bounds.width) || 1320, 2400)), height: Math.max(700, Math.min(Number(bounds.height) || 880, 1600)),
-    minWidth: 900, minHeight: 640, show: false, backgroundColor: '#111711', title: 'ArmaHost Desktop',
+    minWidth: 900, minHeight: 640, show: false, backgroundColor: '#111711', title: 'ArmaHost Desktop', icon: path.join(root, 'build', 'icon.png'),
     webPreferences: { preload: path.join(root, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
   const trusted = event => {

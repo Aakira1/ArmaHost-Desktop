@@ -22,7 +22,7 @@ let logEntries = [];
 let toastTimer;
 let presetSignature = '';
 const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword'];
-const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'starlink', 'starlinkVpn', 'rconEnabled'];
+const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'starlink', 'starlinkVpn', 'rconEnabled'];
 const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
@@ -70,14 +70,14 @@ function populate(settings, revision) {
   for (const key of flagKeys) $(key).checked = settings[key];
   for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort']) $(key).value = settings[key];
   $('modRoots').value = settings.modRoots.join('\n');
-  draftMods = structuredClone(settings.mods); editRevision = revision; renderMods();
+  draftMods = structuredClone(settings.mods); editRevision = revision; renderMods(); validatePaths();
   renderNetworkDraft();
 }
 function duration(seconds) { return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':'); }
 function renderDetails(next) {
   const st = next.status; const live = Boolean(st.pid && st.active); const a = st.active || next.settings;
   $('config-scope').textContent = live ? 'ACTIVE SERVER CONFIG' : 'NEXT SERVER START';
-  $('detail-exe').textContent = st.serverExe || next.settings.serverExe || 'Not configured';
+  $('detail-exe').textContent = next.demo ? 'Demo worker (no Arma process)' : st.serverExe || next.settings.serverExe || 'Not configured';
   $('detail-state').textContent = `${st.pid || '—'} · ${st.state.toUpperCase()}${live ? ` · up ${duration(st.uptimeSeconds)}` : ''}`;
   $('detail-port').textContent = `UDP ${a.port}–${a.port + 4}${next.settings.rconEnabled ? ` · RCon ${next.settings.rconPort}` : ''}`;
   $('detail-mission').textContent = a.mission || 'Chosen in game';
@@ -88,11 +88,30 @@ function renderDetails(next) {
   $('detail-command').textContent = (live ? st.command : $('server-preview').textContent) || '—';
   $('detail-error').hidden = !st.lastError; $('detail-error-text').textContent = st.lastError || '';
   $('detail-diff').hidden = !next.pendingRestart;
+  if (queriedPid && queriedPid !== st.pid) queriedPid = null;
+  const ready = st.pid ? st.ready : null;
+  $('ready-badge').textContent = next.demo ? 'DEMO' : ready ? (ready.stage === 'mission' ? 'READY · MISSION STARTED' : 'ONLINE') : st.pid ? 'LOADING…' : 'NOT RUNNING';
+  $('ready-badge').classList.toggle('ready', Boolean(ready));
+  if (!st.pid) $('query-result').textContent = st.autoRestartPending ? 'Server crashed; auto-restart is pending.' : 'After starting, use Test server is up to confirm the server answers.';
+  else if (ready && !queriedPid) $('query-result').textContent = ready.label + '.';
 }
+let queriedPid = null;
+const SERVER_NAMES = ['arma3server_x64.exe', 'arma3server.exe'], GAME_NAMES = ['arma3_x64.exe', 'arma3.exe'];
+function exeName(value) { return value.trim().split(/[\\/]/).pop().toLowerCase(); }
+function validatePaths() {
+  const server = $('serverExe').value.trim(), game = $('gameExe').value.trim();
+  const errors = {
+    serverExe: server && !SERVER_NAMES.includes(exeName(server)) ? `"${exeName(server)}" is not a dedicated server. Use arma3server_x64.exe${GAME_NAMES.includes(exeName(server)) ? ' — this is the game; put it in Arma 3 Game Installation below' : ''}.` : '',
+    gameExe: game && !GAME_NAMES.includes(exeName(game)) ? `"${exeName(game)}" is not the game executable. Use arma3_x64.exe${SERVER_NAMES.includes(exeName(game)) ? ' — this is the server; put it in Dedicated Server Installation above' : ''}.` : ''
+  };
+  if (server && game && server.toLowerCase().replaceAll('/', '\\') === game.toLowerCase().replaceAll('/', '\\')) errors.gameExe = 'Game and server must be different files.';
+  for (const [id, message] of Object.entries(errors)) { $(`${id}-error`).hidden = !message; $(`${id}-error`).textContent = message; $(id).classList.toggle('invalid', Boolean(message)); }
+}
+for (const id of ['serverExe', 'gameExe']) $(id).addEventListener('input', validatePaths);
 function updateControls() {
   const running = state?.status.state === 'running'; const transitioning = busy || Boolean(state?.status.busy) || shuttingDown;
   $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning || state.status.state === 'stopping';
-  for (const id of ['join-game', 'restart-server', 'stop-server']) $(id).disabled = !running || transitioning;
+  for (const id of ['join-game', 'restart-server', 'stop-server', 'query-server']) $(id).disabled = !running || transitioning;
   $('join-remote').disabled = !state || transitioning;
   if (state?.live) renderLive(state.live);
 }
@@ -196,6 +215,15 @@ function sessionRole(join) {
 }
 $('role-host').addEventListener('click', () => sessionRole(false));
 $('role-join').addEventListener('click', () => sessionRole(true));
+onButton('query-server', async () => {
+  $('query-result').textContent = 'Querying the server…';
+  const result = await api('/api/server/query', {});
+  queriedPid = result.ok ? state?.status.pid : null;
+  $('query-result').textContent = result.message; notify(result.message, !result.ok);
+  applyState(await api('/api/state'));
+});
+onButton('copy-command', async () => { await navigator.clipboard.writeText($('detail-command').textContent); notify('Server command copied (passwords redacted).'); });
+$('error-diagnostics').addEventListener('click', () => $('diagnose-top').click());
 onButton('copy-address', async () => { await navigator.clipboard.writeText($('hero-address').textContent); notify('Local server address copied.'); });
 onButton('check-live', async () => { const result = await api('/api/live/check', {}); state.live = result; renderLive(result); notify(result.status === 'connected' ? `Server responded: ${result.players.length} player(s) connected.` : result.status === 'demo' ? 'Demo check only: no real server connection.' : result.error || 'Server connection is unavailable.', result.status === 'disconnected'); });
 onButton('send-live', async () => { const result = await api('/api/live/message', { message: $('live-message').value }); notify(result.message); });
