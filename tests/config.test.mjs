@@ -20,7 +20,8 @@ test('reject invalid ports, booleans, unknown options and non-object payloads', 
   for (const value of [null, [], '']) assert.throws(() => validateSettings(value));
 });
 test('LAN requires a password; auto-init requires a mission and persistence', () => {
-  assert.throws(() => validateSettings({ ...settings(), lan: true }), /password/i);
+  // A join password is optional: an open server is allowed.
+  assert.equal(validateSettings({ ...settings(), lan: true }).lan, true);
   assert.throws(() => validateSettings({ ...settings(), autoInit: true }), /mission/i);
   assert.throws(() => validateSettings({ ...settings(), autoInit: true, mission: 'Test.Altis', persistent: false }), /persistent/i);
 });

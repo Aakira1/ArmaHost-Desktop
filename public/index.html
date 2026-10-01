@@ -23,7 +23,7 @@
     </nav>
     <div class="sidebar-bottom">
       <div class="side-card">
-        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.8.0</span></div>
+        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.8.1</span></div>
         <div id="side-updates"></div>
         <div class="side-links"><button class="side-link" id="help-button"><span>?</span> Setup notes</button></div>
       </div>
@@ -96,7 +96,7 @@
             <input type="hidden" id="audience">
             <div class="audience-grid" role="radiogroup" aria-label="Who will play?">
               <button type="button" class="audience-card" role="radio" data-audience="self"><strong>Just me</strong><small>Play on this PC only. The server listens on 127.0.0.1, which nothing outside this PC can reach. No password, firewall or router changes.</small></button>
-              <button type="button" class="audience-card" role="radio" data-audience="home"><strong>People on my home network</strong><small>Same router or Wi-Fi. The server accepts network connections and friends use this PC's LAN address. Needs a join password and a Windows Firewall rule. No router changes.</small></button>
+              <button type="button" class="audience-card" role="radio" data-audience="home"><strong>People on my home network</strong><small>Same router or Wi-Fi. The server accepts network connections and friends use this PC's LAN address. Needs a Windows Firewall rule; a join password is optional. No router changes.</small></button>
               <button type="button" class="audience-card" role="radio" data-audience="internet"><strong>Friends elsewhere</strong><small>Over the internet. Also needs your public IPv4 and the game ports forwarded on your router (or UPnP), or a shared VPN.</small></button>
             </div>
             <p id="audience-summary" class="inline-hint"></p>
@@ -105,7 +105,7 @@
             <p id="network-description" class="help-text">Normal network: host directly over the internet.</p>
             <label class="network-switch"><span>Normal network</span><input id="starlink" type="checkbox" role="switch" aria-label="Use Starlink network"><span class="switch-track" aria-hidden="true"></span><span>Starlink</span></label>
             <div id="direct-network"><label class="span-2">Public IPv4 address for friends<span class="input-row"><input id="publicIp" placeholder="Your router’s public internet IPv4 address" maxlength="15" spellcheck="false"><button type="button" id="detect-public-ip" class="button subtle">Detect my public IP</button></span><small>Needed for friends elsewhere. Press Detect, or copy the public IPv4 from your router. Not this PC’s private address (192.168.x.x / 10.x.x.x).</small></label>
-              <div id="normal-network-steps"><h3>Internet setup (normal connection)</h3><ol class="hosting-steps"><li>Set a join password (Server settings above).</li><li>In your router, reserve this PC’s LAN address and forward the UDP game ports shown below to it, or tick UPnP if your router supports it.</li><li>Detect or enter your public IPv4 above.</li><li>Allow the server through Windows Firewall (below).</li><li>Save, restart the server, then send the invite from Overview.</li></ol></div>
+              <div id="normal-network-steps"><h3>Internet setup (normal connection)</h3><ol class="hosting-steps"><li>Optional: set a join password (Server settings above). Without one, anyone with your address can join.</li><li>In your router, reserve this PC’s LAN address and forward the UDP game ports shown below to it, or tick UPnP if your router supports it.</li><li>Detect or enter your public IPv4 above.</li><li>Allow the server through Windows Firewall (below).</li><li>Save, restart the server, then send the invite from Overview.</li></ol></div>
               <div id="starlink-network-steps" hidden><h3>Starlink direct setup — no VPN software</h3><ol class="hosting-steps"><li>Enable public IPv4 on your eligible Starlink service.</li><li>Use a router that supports port forwarding. The Starlink router itself does not; if needed, connect a suitable router and use Starlink bypass mode.</li><li>Reserve this PC’s LAN address in that router, forward the game UDP ports below to it, then enter the public IPv4 shown in your Starlink account/router.</li></ol><p class="inline-hint">Public IPv4 is required for direct incoming connections. A 100.64–100.127.x.x WAN address is CGNAT and cannot accept ordinary port forwarding.</p></div>
               <p id="router-target" class="help-text">Refresh hosting details to see this PC’s LAN addresses and the game ports.</p>
             </div>
@@ -144,7 +144,7 @@
             <label class="span-2">Server name<input id="serverName" required maxlength="100"></label>
             <label>Game port<input id="port" type="number" min="1024" max="65531" required><small>Default 2302. The manager checks UDP port through port + 4.</small></label>
             <label>Maximum players<input id="maxPlayers" type="number" min="1" max="128" required><small>Mission slot count can impose a lower limit.</small></label>
-            <label>Join password<input id="password" type="password" maxlength="64" autocomplete="new-password"><small>Required for LAN mode. Stored locally in plain text.</small></label>
+            <label>Join password<input id="password" type="password" maxlength="64" autocomplete="new-password"><small>Optional. Leave empty for an open server anyone with the address can join. Stored locally in plain text.</small></label>
             <label>Admin password<input id="adminPassword" type="password" maxlength="64" autocomplete="new-password"><small>Optional. Do not reuse an important account password.</small></label><label>Admin Steam ID (no password needed)<span class="input-row"><input id="adminSteamIds" placeholder="7656119…" maxlength="200" spellcheck="false"><button type="button" id="detect-steam-id" class="button subtle">Detect my Steam ID</button></span><small>This Steam account can type <code>#login</code> in game without the admin password, then <code>#missions</code> to pick a mission. Separate several with commas.</small></label>
             <label>Difficulty<select id="difficulty"><option>Recruit</option><option selected>Regular</option><option>Veteran</option></select></label>
             <label>Live map update interval (seconds)<input id="liveMapInterval" type="number" min="2" max="30"><small>2–30 s. Busy missions use at least 5 s automatically.</small></label>

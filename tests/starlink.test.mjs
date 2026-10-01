@@ -14,9 +14,9 @@ test('Starlink binds only the VPN address and permits remote game connections', 
   assert.ok(clientArgs(s).includes('-connect=100.101.2.3'));
   assert.match(renderConfig(s), /loopback = 0;/);
 });
-test('Starlink requires a valid unicast IPv4 address and password', () => {
+test('Starlink VPN hosting requires a valid unicast IPv4 address; the join password is optional', () => {
   for (const vpnIp of ['', 'example.com', '127.0.0.1', '0.0.0.0', '255.255.255.255', '224.1.2.3', '169.254.1.2', '100.1.2.3; calc']) assert.throws(() => validateSettings({ ...defaults(), starlink: true, starlinkVpn: true, vpnIp, password: 'ok' }));
-  assert.throws(() => validateSettings({ ...defaults(), starlink: true, vpnIp: '100.101.2.3' }), /password/i);
+  assert.equal(validateSettings({ ...defaults(), starlink: true, vpnIp: '100.101.2.3' }).password, '', 'a join password is optional');
   assert.throws(() => validateSettings({ ...defaults(), starlink: 'yes' }));
   assert.equal(validateSettings({ serverName: 'Old preset' }).starlink, false);
 });
