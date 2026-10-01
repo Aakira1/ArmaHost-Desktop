@@ -7,7 +7,7 @@ import { Store } from './store.mjs';
 import { LogBook } from './logs.mjs';
 import { ProcessManager, joinSettings } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics } from './discovery.mjs';
-import { hostingInfo } from './network.mjs';
+import { hostingInfo, detectPublicIp } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
 import { MapBackgrounds } from './map-backgrounds.mjs';
 
@@ -128,6 +128,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
+        else if (route === 'POST /api/network/public-ip') return send(200, await detectPublicIp());
         else if (route === 'POST /api/map/background') return send(200, await backgrounds.set(body.world, body.path));
         else if (route === 'POST /api/map/background/clear') return send(200, await backgrounds.clear(body.world));
         else if (route === 'POST /api/server/query') return send(200, await manager.query());

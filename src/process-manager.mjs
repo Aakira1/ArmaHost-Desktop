@@ -18,6 +18,7 @@ import { writeMapAddon } from './map-addon.mjs';
 import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+export const ARMA3_LAUNCHER_URL = 'steam://run/107410';
 // Resolves true if the child closes within ms; never leaves a timer behind.
 function waitForClose(child, ms) {
   return new Promise(resolve => {
@@ -59,7 +60,7 @@ export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
     this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
-      gracefulStopMs: 15000, joinPollMs: 2000, joinQueryMs: 5000, joinWaitMs: 600000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
+      openUrl: url => { const child = spawn('explorer.exe', [url], { detached: true, stdio: 'ignore', windowsHide: true }); child.on('error', () => {}); child.unref(); }, gracefulStopMs: 15000, joinPollMs: 2000, joinQueryMs: 5000, joinWaitMs: 600000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
     this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false; this.pendingJoin = null;
     logs?.listeners?.add(entry => this.observe(entry));
     this.dir = dir; this.logs = logs; this.demo = demo; this.child = null;
@@ -377,6 +378,7 @@ export class ProcessManager {
   async launchGame(s, connection, saved = null) {
       if (Date.now() - this.lastJoin < 10000) throw new AppError('A game launch was just requested. Allow it to open before trying again.', 429);
       if (this.demo) { this.logs.add('DEMO Join clicked. A real session would launch Arma 3; nothing was executed.'); this.lastJoin = Date.now(); return { message: 'Demo only: no game was launched.' }; }
+      if (s.joinMethod === 'launcher') return this.openLauncher(s, connection);
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
       const processes = await this.deps.armaProcesses();
       if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Direct Connect in the existing game, or close it before pressing Join.', 409);
@@ -397,6 +399,18 @@ export class ProcessManager {
       this.logs.add(`Game launch dispatched: ${displayCommand(exe, args)}.`);
       if (s.battleye) this.logs.add('Game launched through the official BattlEye bootstrap. Allow its update check to finish.');
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
+  }
+  // Join through the official Arma 3 Launcher (via Steam) instead of starting the game directly:
+  // the launcher handles BattlEye, mods and updates itself. The player then uses Direct Connect.
+  async openLauncher(s, connection = { host: gameAddress(s), port: s.port, password: s.password }) {
+    const processes = await this.deps.armaProcesses();
+    if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Server Browser > Direct Connect in the open game, or close it first (check Task Manager for a stuck Arma 3 process).', 409);
+    this.deps.openUrl(ARMA3_LAUNCHER_URL);
+    this.lastJoin = Date.now();
+    const mods = s.mods.filter(m => m.enabled && m.scope !== 'server').map(m => path.basename(m.path));
+    this.logs.add(`Opened the Arma 3 Launcher to join ${connection.host}:${connection.port}.`);
+    return { launcher: true, connect: { host: connection.host, port: connection.port, hasPassword: Boolean(connection.password) },
+      message: `Opening the Arma 3 Launcher. In it, press Play, then Multiplayer > Server Browser > Direct Connect: ${connection.host} port ${connection.port}${connection.password ? ' (use your join password)' : ''}.${mods.length ? ` Enable these mods in the launcher first: ${mods.join(', ')}.` : ''}` };
   }
   async close({ leaveRunning = false } = {}) {
     this.closing = true; this.cancelAutoRestart(); this.cancelJoin();

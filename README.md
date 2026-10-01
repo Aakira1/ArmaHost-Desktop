@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.6.0
+# ArmaHost Desktop 1.6.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.6.1:** Join opens the Arma 3 Launcher; detect public IP; optional UPnP port forwarding.
 
 **1.6.0:** Live map topographic maps built from your own server (see [Live map](docs/LIVE-MAP.md)).
 

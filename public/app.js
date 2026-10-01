@@ -23,8 +23,8 @@ let logCursor = 0;
 let logEntries = [];
 let toastTimer;
 let presetSignature = '';
-const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword'];
-const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'starlink', 'starlinkVpn', 'rconEnabled'];
+const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword', 'joinMethod'];
+const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'upnp', 'starlink', 'starlinkVpn', 'rconEnabled'];
 const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
@@ -157,6 +157,7 @@ function applyState(next, hydrate = false) {
   $('hero-name').textContent = s.serverName;
   $('hero-mission').textContent = s.mission || 'Mission selection opens in game.';
   $('hero-address').textContent = next.network?.address || `127.0.0.1:${s.port}`;
+  $('hosting-cta').hidden = next.demo || next.network?.scope !== 'local';
   $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Starlink · VPN hosting' : 'Starlink · direct hosting' : s.lan ? 'Normal network · LAN / internet' : 'Normal network · this PC only';
   $('server-status').textContent = (next.demo ? 'DEMO · ' : '') + next.status.state.toUpperCase();
   $('server-status').classList.toggle('running', next.status.state === 'running');
@@ -247,11 +248,21 @@ onButton('join-game', async () => {
     if (!whenReady) return;
   }
   const result = await api('/api/game/join', { whenReady });
-  notify(result.message); applyState(await api('/api/state'));
+  notify(await withCopiedAddress(result)); applyState(await api('/api/state'));
 });
-onButton('join-now', async () => { await api('/api/game/join/cancel', {}); const result = await api('/api/game/join', {}); notify(result.message); applyState(await api('/api/state')); });
+onButton('join-now', async () => { await api('/api/game/join/cancel', {}); const result = await api('/api/game/join', {}); notify(await withCopiedAddress(result)); applyState(await api('/api/state')); });
 onButton('join-cancel', async () => { applyState(await api('/api/game/join/cancel', {})); notify('Automatic join cancelled.'); });
-onButton('join-remote', async () => { if (dirty) await save(true); const result = await api('/api/game/join-remote', {}); notify(result.message); });
+onButton('join-remote', async () => { if (dirty) await save(true); const result = await api('/api/game/join-remote', {}); notify(await withCopiedAddress(result)); });
+// Launcher joins: put host:port on the clipboard for the launcher's Direct Connect box.
+async function withCopiedAddress(result) {
+  if (!result.connect) return result.message;
+  try { await navigator.clipboard.writeText(`${result.connect.host}:${result.connect.port}`); return `${result.message} Address copied.`; } catch { return result.message; }
+}
+onButton('detect-public-ip', async () => {
+  const result = await api('/api/network/public-ip', {});
+  if (result.ok) { $('publicIp').value = result.ip; $('publicIp').dispatchEvent(new Event('input', { bubbles: true })); }
+  notify(result.message, !result.ok);
+});
 function sessionRole(join) {
   $('join-panel').hidden = !join; $('host-panel').hidden = join;
   for (const [id, active] of [['role-host', !join], ['role-join', join]]) {
