@@ -2,6 +2,8 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  # Manual run from main: creates the v<package.json version> tag and release.
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -19,7 +21,11 @@ jobs:
         shell: bash
         run: |
           version=$(node -p "require('./package.json').version")
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json $version"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json $version"; exit 1; }
+          elif [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "Manual releases must run from main (got $GITHUB_REF_NAME)"; exit 1
+          fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Build installer and portable executable
         run: npm run build
@@ -28,6 +34,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           name: ArmaHost Desktop ${{ env.VERSION }}
           body_path: docs/RELEASE-NOTES-${{ env.VERSION }}.md
           make_latest: true
