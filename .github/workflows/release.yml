@@ -1,0 +1,38 @@
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Check tag matches package version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json $version"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Build installer and portable executable
+        run: npm run build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ArmaHost Desktop ${{ env.VERSION }}
+          body_path: docs/RELEASE-NOTES-${{ env.VERSION }}.md
+          make_latest: true
+          files: |
+            dist/ArmaHost.Desktop.Setup.${{ env.VERSION }}.exe
+            dist/ArmaHost.Desktop.Setup.${{ env.VERSION }}.exe.blockmap
+            dist/ArmaHost-Desktop-Portable-${{ env.VERSION }}.exe
+          fail_on_unmatched_files: true

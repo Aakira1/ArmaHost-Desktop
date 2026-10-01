@@ -7,7 +7,7 @@ export class LogBook {
   constructor(dir) {
     mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'manager.log'); this.entries = []; this.sequence = 0;
-    this.secrets = new Set(); this.diskError = null;
+    this.secrets = new Set(); this.diskError = null; this.listeners = new Set();
     this.bytes = existsSync(this.file) ? statSync(this.file).size : 0;
   }
   setSecrets(values) { for (const value of values) if (typeof value === 'string' && value) this.secrets.add(value); }
@@ -22,6 +22,7 @@ export class LogBook {
       const entry = { id: ++this.sequence, time: new Date().toISOString(), source, message: line.slice(0, 4096) };
       this.entries.push(entry);
       if (this.entries.length > 1000) this.entries.shift();
+      for (const listener of this.listeners) { try { listener(entry); } catch { /* A listener must not break logging. */ } }
       const output = `${entry.time} [${source}] ${entry.message}\n`;
       try {
         if (this.bytes + Buffer.byteLength(output) > 2 * 1024 * 1024) {

@@ -20,7 +20,7 @@
       <button class="nav" data-page="presets"><span class="nav-icon">▱</span> Presets <span class="nav-number">05</span></button>
       <button class="nav" data-page="logs"><span class="nav-icon">≡</span> Logs <span class="nav-number">06</span></button>
     </nav>
-    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.0.0</small></div>
+    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.3.2</small></div>
   </aside>
   <div class="workspace">
     <header class="topbar"><div><span class="muted">Workspace</span><span class="slash">/</span><strong id="breadcrumb">Overview</strong></div><div class="top-status"><span id="mode-badge" class="badge">LOCAL</span><span id="connection"><i class="dot"></i> Connecting</span></div></header>
@@ -37,16 +37,26 @@
             <div class="panel-top"><span class="eyebrow">DEDICATED INSTANCE</span><span id="server-status" class="state-badge">STOPPED</span></div>
             <div class="server-name" id="hero-name">Arma 3 Local Operations</div><p class="server-subtitle" id="hero-mission">Choose your mission. Start your session.</p>
             <div class="address-row"><span class="address-pill" id="hero-address">127.0.0.1:2302</span><span class="muted" id="hero-network">This PC only</span><button id="copy-address" class="text-button">Copy address</button></div>
-            <div class="server-actions"><button id="start-server" class="button primary">▶ &nbsp; Start server</button><button id="join-game" class="button" disabled>Join in Arma 3 ↗</button><button id="restart-server" class="button subtle" disabled>Restart</button><button id="stop-server" class="button danger-outline" disabled>Stop</button></div>
+            <div class="process-label">PROCESS 1 · DEDICATED SERVER <code>arma3server_x64.exe</code> — never opens the game</div>
+            <div class="server-actions"><button id="start-server" class="button primary">▶ &nbsp; Start Dedicated Server</button><button id="restart-server" class="button subtle" disabled>Restart Server</button><button id="stop-server" class="button danger-outline" disabled>Stop Server</button><button id="query-server" class="button subtle" disabled title="Sends a Steam server query to game port + 1, like the in-game server browser">Test server is up</button></div>
+            <div id="ready-row" class="ready-row"><span id="ready-badge" class="state-badge">NOT READY</span><span id="query-result" class="muted">After starting, use Test server is up to confirm the server answers.</span></div>
             <div class="server-note"><span class="dot"></span><span id="process-note">The manager controls only the server it starts. Your game is separate.</span></div>
+            <div class="process-label game-label">PROCESS 2 · ARMA 3 GAME CLIENT — separate, optional, started only by you</div>
+            <div class="server-actions"><button id="join-game" class="button" disabled>Launch Game &amp; Join ↗</button></div>
           </section>
           <section class="panel preflight-card"><div class="panel-top"><h2>Before you deploy</h2><span class="muted">01—03</span></div>
-            <div class="check-row"><span id="game-check" class="step-count">01</span><div><strong>Game installation</strong><small id="game-check-note">Select your Arma 3 executable.</small></div></div>
-            <div class="check-row"><span id="server-check" class="step-count">02</span><div><strong>Server installation</strong><small id="server-check-note">Select the dedicated server.</small></div></div>
+            <div class="check-row"><span id="game-check" class="step-count">01</span><div><strong>Game installation (Join only)</strong><small id="game-check-note">Optional — only needed to launch the game.</small></div></div>
+            <div class="check-row"><span id="server-check" class="step-count">02</span><div><strong>Dedicated server installation</strong><small id="server-check-note">Select the dedicated server.</small></div></div>
             <div class="check-row"><span class="step-count">03</span><div><strong>Mission & mods</strong><small>Start vanilla, then add your loadout.</small></div></div>
             <button class="button full subtle" data-goto="setup">Configure installation →</button>
           </section>
         </div>
+        <section class="panel" id="server-details"><div class="panel-top"><h2>Dedicated server</h2><span id="config-scope" class="badge">NEXT SERVER START</span></div>
+          <dl class="detail-grid"><div><dt>Executable</dt><dd id="detail-exe">—</dd></div><div><dt>PID · state</dt><dd id="detail-state">—</dd></div><div><dt>Game port</dt><dd id="detail-port">—</dd></div><div><dt>Mission</dt><dd id="detail-mission">—</dd></div><div><dt>Enabled mods</dt><dd id="detail-mods">—</dd></div><div><dt>Network mode</dt><dd id="detail-network">—</dd></div></dl>
+          <div class="command-head"><h3 id="detail-command-title">NEXT SERVER START — command</h3><button type="button" id="copy-command" class="text-button">Copy command</button></div><pre id="detail-command">—</pre>
+          <div id="detail-error" class="notice danger" hidden><strong>Latest startup error</strong><span id="detail-error-text"></span><button type="button" id="error-diagnostics" class="button subtle">Run diagnostics</button></div>
+          <p id="detail-diff" class="help-text" hidden>ACTIVE SERVER CONFIG above is what is running now. Saved settings differ and apply at NEXT SERVER START (use Restart Server).</p>
+        </section>
         <div class="metrics"><div class="metric"><span>PROCESS ID</span><strong id="metric-pid">—</strong><small>Owned server process</small></div><div class="metric"><span>SESSION UPTIME</span><strong id="metric-uptime">00:00:00</strong><small>Process lifetime, not mission time</small></div><div class="metric"><span>ENABLED MODS</span><strong id="metric-mods">00</strong><small>Selected loadout</small></div><div class="metric"><span>PLAYER LIMIT</span><strong id="metric-players">16</strong><small>Configured cap, not live player count</small></div></div>
         <section class="panel"><div class="panel-top"><div><h2>Live server connection</h2><p>Check who is connected and send a message to everyone in-game.</p></div><span id="live-status" class="state-badge">NOT CHECKED</span></div>
           <p id="live-note" class="help-text">Enable live monitoring in Setup, save, then restart the server.</p>
@@ -58,7 +68,7 @@
         </section>
         <div id="restart-notice" class="notice" hidden><strong>Restart pending.</strong><span>Saved settings differ from the active server. Join keeps using the active connection details.</span></div>
         <section class="panel"><div class="panel-top"><h2>Session activity</h2><button class="text-button" data-goto="logs">Open full log →</button></div><div id="mini-log" class="console mini-console"><p class="muted">Waiting for the local manager…</p></div><div class="panel-footer">Process status does not confirm mission readiness. Check the RPT output before joining.</div></section>
-        <details class="panel preview-panel"><summary>Launch commands & generated configuration <span>Passwords redacted</span></summary><div class="preview-body"><h3>Server — next launch</h3><pre id="server-preview">Loading…</pre><h3>Game — active session when running</h3><pre id="client-preview">Loading…</pre><h3>server.cfg — next launch</h3><pre id="config-preview">Loading…</pre></div></details>
+        <details class="panel preview-panel"><summary>Launch commands & generated configuration <span>Passwords redacted</span></summary><div class="preview-body"><h3>NEXT SERVER START — server command</h3><pre id="server-preview">Loading…</pre><h3>Game — active session when running</h3><pre id="client-preview">Loading…</pre><h3>server.cfg — next launch</h3><pre id="config-preview">Loading…</pre></div></details>
         </div>
       </section>
       <section id="page-setup" class="page" hidden>
@@ -79,10 +89,12 @@
             <pre id="vpn-firewall" class="hosting-command">Save a server executable and enable network hosting to generate a scoped Windows Firewall command.</pre>
             <p class="help-text">Run the firewall command in administrator PowerShell. Router forwarding is configured in your router. Restart after saving network changes. Use the live connection panel and a friend’s in-game test to confirm access.</p>
           </section>
-          <section class="panel"><div class="panel-top"><div><h2>Installation paths</h2><p>Use existing installations. This utility does not download Arma 3.</p></div><button type="button" id="auto-detect" class="button subtle">Detect Steam installs</button></div>
-            <div class="form-grid"><label class="span-2">Arma 3 game executable<input id="gameExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3\arma3_x64.exe" autocomplete="off" spellcheck="false" list="game-paths"><small>Full path to arma3_x64.exe or arma3.exe. No surrounding quotes.</small></label><datalist id="game-paths"></datalist>
-            <label class="span-2">Dedicated server executable<input id="serverExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3 Server\arma3server_x64.exe" autocomplete="off" spellcheck="false" list="server-paths"><small>Install Arma 3 Server from Steam’s Library tools if it is missing.</small></label><datalist id="server-paths"></datalist></div>
+          <section class="panel"><div class="panel-top"><div><h2>Dedicated Server Installation</h2><p>Required to host. Start Dedicated Server launches only <code>arma3server_x64.exe</code> from here.</p></div><button type="button" id="auto-detect" class="button subtle">Detect Steam installs</button></div>
+            <div class="form-grid"><label class="span-2">Dedicated server executable (arma3server_x64.exe)<input id="serverExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3 Server\arma3server_x64.exe" autocomplete="off" spellcheck="false" list="server-paths"><small>Must be arma3server_x64.exe or arma3server.exe. Install Arma 3 Server from Steam’s Library tools if it is missing.</small><small id="serverExe-error" class="field-error" hidden></small></label><datalist id="server-paths"></datalist></div>
             <p id="discovery-note" class="help-text">Detection checks Steam library paths; custom installs can always be entered manually.</p>
+          </section>
+          <section class="panel"><div class="panel-top"><div><h2>Arma 3 Game Installation</h2><p>Optional. Only used by Launch Game &amp; Join; never needed to start a dedicated server.</p></div></div>
+            <div class="form-grid"><label class="span-2">Arma 3 game executable (arma3_x64.exe)<input id="gameExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3\arma3_x64.exe" autocomplete="off" spellcheck="false" list="game-paths"><small>Full path to arma3_x64.exe or arma3.exe. No surrounding quotes. Must be a different file from the server executable.</small><small id="gameExe-error" class="field-error" hidden></small></label><datalist id="game-paths"></datalist></div>
           </section>
           <section class="panel"><div class="panel-top"><div><h2>Live players & test messages</h2><p>Uses BattlEye RCon on this PC. Save and restart to apply these settings.</p></div></div>
             <label class="toggle-card"><input id="rconEnabled" type="checkbox"><span><strong>Enable live server monitoring</strong><small>Requires BattlEye. Checks players every 5 seconds and receives BattlEye console events.</small></span></label>
@@ -102,6 +114,7 @@
             <label class="toggle-card"><input id="battleye" type="checkbox" checked><span><strong>BattlEye protection</strong><small>Use the official launcher if direct game startup asks for a BattlEye restart.</small></span></label>
             <label class="toggle-card"><input id="persistent" type="checkbox" checked><span><strong>Persistent mission</strong><small>Allows compatible missions to continue after players leave.</small></span></label>
             <label class="toggle-card"><input id="autoInit" type="checkbox"><span><strong>Auto-initialise mission</strong><small>Requires a selected mission and persistent mode.</small></span></label>
+            <label class="toggle-card"><input id="autoRestart" type="checkbox"><span><strong>Restart the server if it crashes</strong><small>Restarts only the dedicated server, up to 3 times in 10 minutes. Never launches the game.</small></span></label>
           </div></section>
           <div class="form-footer"><span class="muted">Private data lives beside this application in <code>data/</code>.</span><button type="submit" class="button primary">Save configuration</button></div>
         </form>

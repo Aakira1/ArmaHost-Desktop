@@ -34,6 +34,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   const manager = new ProcessManager({ dir, logs, demo });
   await manager.restore();
   const monitor = new LiveMonitor(manager, logs);
+  manager.gracefulStop = () => monitor.shutdown();
   const token = randomBytes(32).toString('hex');
   let closing = false; let actualPort; let closePromise;
   const refreshSecrets = () => {
@@ -97,9 +98,10 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/discover') return send(200, await discoverInstallations());
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
-        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo));
+        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
+        else if (route === 'POST /api/server/query') return send(200, await manager.query());
         else if (route === 'POST /api/server/start') await manager.start(store.snapshot().settings);
         else if (route === 'POST /api/server/stop') await manager.stop();
         else if (route === 'POST /api/server/restart') await manager.restart(store.snapshot().settings);

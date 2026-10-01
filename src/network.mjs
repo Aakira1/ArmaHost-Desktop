@@ -1,3 +1,4 @@
+import dgram from 'node:dgram';
 import os from 'node:os';
 import { isIPv4 } from 'node:net';
 
@@ -10,6 +11,13 @@ export function publicAddress(value) {
   if (!usableAddress(value)) return false;
   const [a, b] = value.split('.').map(Number);
   return a !== 10 && !(a === 172 && b >= 16 && b <= 31) && !(a === 192 && b === 168) && !(a === 100 && b >= 64 && b <= 127) && !(a === 198 && (b === 18 || b === 19));
+}
+export function udpPortFree(port, address) {
+  return new Promise(resolve => {
+    const socket = dgram.createSocket('udp4');
+    socket.once('error', () => { try { socket.close(); } catch {} resolve(false); });
+    socket.bind(port, address, () => socket.close(() => resolve(true)));
+  });
 }
 export function bindAddress(s) { return s.starlink && s.starlinkVpn ? s.vpnIp : s.lan || s.starlink ? '0.0.0.0' : '127.0.0.1'; }
 export function gameAddress(s) { return s.starlink && s.starlinkVpn ? s.vpnIp : '127.0.0.1'; }

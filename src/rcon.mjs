@@ -40,6 +40,11 @@ export class RconClient {
   }
   command(command) {
     if (command !== 'players' && !/^say -1 [\x20-\x7e]{1,200}$/.test(command)) return Promise.reject(new Error('RCon command is not allowed.'));
+    return this.run(command);
+  }
+  // Fixed internal command used only by Stop Server; never reachable through command().
+  shutdown() { return this.run('#shutdown'); }
+  run(command) {
     const task = this.queue.then(async () => {
       if (this.closed) throw new Error('RCon connection closed.');
       if (!this.ready) await this.connect();

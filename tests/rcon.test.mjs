@@ -53,7 +53,7 @@ async function fakeServer(fn, rejectLogin = false) {
         send(Buffer.concat([Buffer.from([1, p[1], 0, 2, 1]), Buffer.from(parts[1])]));
         send(Buffer.concat([Buffer.from([1, p[1], 0, 2, 0]), Buffer.from(parts[0])]));
         send(Buffer.concat([Buffer.from([2, 9]), Buffer.from('Player #0 Friend connected')]));
-      } else if (command.startsWith('say -1 ') && command !== 'say -1 ignored') send([1, p[1]]);
+      } else if ((command.startsWith('say -1 ') && command !== 'say -1 ignored') || command === '#shutdown') send([1, p[1]]);
     }
   });
   const client = new RconClient({ port: server.address().port, password: 'test-rcon-secret', timeout: 150 });
@@ -131,3 +131,9 @@ test('live API requires authentication, manages config and labels demo broadcast
     await app.manager.stop(); assert.equal(app.monitor.snapshot().status, 'stopped');
   } finally { await app.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test('shutdown is a fixed internal command; arbitrary admin commands stay blocked', async () => fakeServer(async (client, commands) => {
+  for (const command of ['#shutdown', '#exec ban 1', '#restart']) await assert.rejects(client.command(command), /not allowed/i);
+  await client.shutdown();
+  assert.deepEqual(commands, ['#shutdown']);
+}));

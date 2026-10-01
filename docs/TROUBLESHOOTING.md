@@ -52,6 +52,8 @@ Another process may already own one of the five checked UDP ports starting at th
 
 ## Server says RUNNING but joining fails
 
+**Check whether the server is up:** press **Test server is up** on Overview. It sends the standard Steam server query (A2S_INFO) to game port + 1, the same query the in-game browser uses. A reply shows the server name, map and player count and proves the server process is answering. No reply usually means it is still loading (allow a minute, longer with mods) or it crashed; check the log. The test runs from this PC, so it does not prove friends can reach you through your router. The ONLINE / READY · MISSION STARTED badge is set only when the server log shows `Host identity created.` / `Game started.` or a query succeeds.
+
 RUNNING means the owned process exists. It is not a game-protocol handshake or mission-ready check. Wait for Arma's startup/mission output, confirm the matching client/server versions and port, and test without mods. Use Direct Connect with `127.0.0.1`. Join only launches the game; it cannot confirm that you entered the server.
 
 An already-open game may ignore a second launch or pass through Steam. Use the official launcher or in-game Direct Connect instead. The Join button has a 10-second cooldown to reduce duplicate launches.
@@ -81,3 +83,11 @@ The application keeps the newest 1,000 in-memory entries and rotates its own man
 ## Uninstall / update
 
 Stop the manager and managed server. Back up `data/` somewhere private before replacing source files. Deleting the extracted project folder removes this tool and its local data only; it does not uninstall Arma or Node.js. Do not delete data you need for profiles or saved mission progress.
+
+## Stop Server and graceful shutdown
+
+With live monitoring (BattlEye RCon) enabled, Stop Server first asks the server to shut down cleanly with `#shutdown` and waits up to 15 seconds. If the server does not exit, or RCon is off, the process is terminated as before.
+
+## Restart the server if it crashes
+
+Optional (Setup › Session configuration). When the dedicated server exits with an error while running, it is restarted after 5 seconds, at most 3 times in 10 minutes. Clean exits, Stop Server and failed first starts never trigger it. It only restarts the dedicated server and never launches the game.
