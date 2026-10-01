@@ -27,7 +27,7 @@ $others = @(Get-NetFirewallRule -Group '${RULE_GROUP}' | Where-Object { $_.Displ
 $networks = @(Get-NetConnectionProfile | ForEach-Object { [string]$_.NetworkCategory })
 $blocks = @(Get-NetFirewallApplicationFilter -Program $env:AH_PROGRAM | Get-NetFirewallRule | Where-Object { [string]$_.Action -eq 'Block' -and [string]$_.Direction -eq 'Inbound' -and [string]$_.Enabled -eq 'True' } | ForEach-Object { [pscustomobject]@{ name = [string]$_.Name; displayName = [string]$_.DisplayName; profile = [string]$_.Profile } })
 $ports = ''; $program = ''
-if ($rule) { $ports = [string](($rule | Get-NetFirewallPortFilter).LocalPort -join ','); $program = [Environment]::ExpandEnvironmentVariables([string]($rule | Get-NetFirewallApplicationFilter).Program) }
+if ($rule) { $ports = [string]((Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule).LocalPort -join ','); $program = [Environment]::ExpandEnvironmentVariables([string](Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program) }
 [pscustomobject]@{ exists = [bool]$rule; enabled = [bool]($rule -and [string]$rule.Enabled -eq 'True'); profile = $(if ($rule) { [string]$rule.Profile } else { '' }); ports = $ports; program = $program; others = $others; networks = $networks; blocks = $blocks } | ConvertTo-Json -Compress -Depth 4`;
 }
 export function allowScript(s, profiles) {
@@ -86,7 +86,10 @@ export class Firewall {
       raw = JSON.parse(stdout.trim() || '{}');
     } catch { return { supported: true, error: 'Could not read Windows Firewall settings.' }; }
     const list = v => (Array.isArray(v) ? v : v ? [v] : []);
-    const ok = raw.exists && raw.enabled && String(raw.ports) === `${s.port}-${s.port + 4}` && path.win32.normalize(raw.program || '').toLowerCase() === path.win32.normalize(s.serverExe).toLowerCase();
+    // The rule is only ever created by ArmaHost, for this program, with the port range in its name.
+    // Port and program are compared when Windows reports them (some versions return them empty).
+    const same = (found, wanted) => !found || found === wanted;
+    const ok = Boolean(raw.exists && raw.enabled) && same(String(raw.ports || ''), `${s.port}-${s.port + 4}`) && same(path.win32.normalize(raw.program || '').toLowerCase(), path.win32.normalize(raw.program ? s.serverExe : '').toLowerCase());
     const networks = list(raw.networks);
     const blocks = list(raw.blocks).map(b => ({ name: String(b.name), displayName: String(b.displayName), profile: String(b.profile) }));
     return { supported: true, name: ruleName(s.port), exists: Boolean(raw.exists), enabled: Boolean(raw.enabled), ports: String(raw.ports || ''), program: String(raw.program || ''), ok, profile: raw.profile || '', networks, profiles: firewallProfiles(networks),
