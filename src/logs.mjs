@@ -58,19 +58,19 @@ export class RptTail {
         if (info.mtimeMs < this.since) continue;
         let cursor = this.files.get(file);
         if (!cursor || info.size < cursor.offset) {
-          cursor = { offset: Math.max(0, info.size - 65536), partial: '', decoder: new StringDecoder('utf8') };
+          cursor = { offset: Math.max(0, info.size - 262144), partial: '', decoder: new StringDecoder('utf8') };
           this.files.set(file, cursor);
         }
         if (info.size <= cursor.offset) continue;
         const fd = await open(file, 'r');
         try {
-          const buffer = Buffer.alloc(Math.min(65536, info.size - cursor.offset));
+          const buffer = Buffer.alloc(Math.min(262144, info.size - cursor.offset));
           const { bytesRead } = await fd.read(buffer, 0, buffer.length, cursor.offset);
           cursor.offset += bytesRead;
           const text = cursor.partial + cursor.decoder.write(buffer.subarray(0, bytesRead));
           const lines = text.split(/\r?\n/);
           cursor.partial = lines.pop().slice(-8192);
-          for (const line of lines) this.logs.add(line, this.source);
+          for (const line of lines) if (!this.filter?.(line)) this.logs.add(line, this.source);
         } finally { await fd.close(); }
       }
     } catch (error) {

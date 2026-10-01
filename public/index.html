@@ -19,8 +19,9 @@
       <button class="nav" data-page="mods"><span class="nav-icon">▧</span> Mods <span class="nav-number">04</span></button>
       <button class="nav" data-page="presets"><span class="nav-icon">▱</span> Presets <span class="nav-number">05</span></button>
       <button class="nav" data-page="logs"><span class="nav-icon">≡</span> Logs <span class="nav-number">06</span></button>
+      <button class="nav" data-page="map"><span class="nav-icon">⌖</span> Live map <span class="nav-number">07</span></button>
     </nav>
-    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.3.3</small></div>
+    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.4.0</small></div>
   </aside>
   <div class="workspace">
     <header class="topbar"><div><span class="muted">Workspace</span><span class="slash">/</span><strong id="breadcrumb">Overview</strong></div><div class="top-status"><span id="mode-badge" class="badge">LOCAL</span><span id="connection"><i class="dot"></i> Connecting</span></div></header>
@@ -109,11 +110,13 @@
             <label>Join password<input id="password" type="password" maxlength="64" autocomplete="new-password"><small>Required for LAN mode. Stored locally in plain text.</small></label>
             <label>Admin password<input id="adminPassword" type="password" maxlength="64" autocomplete="new-password"><small>Optional. Do not reuse an important account password.</small></label>
             <label>Difficulty<select id="difficulty"><option>Recruit</option><option selected>Regular</option><option>Veteran</option></select></label>
+            <label>Live map update interval (seconds)<input id="liveMapInterval" type="number" min="2" max="30"><small>2–30 s. Busy missions use at least 5 s automatically.</small></label>
             <label>Signature verification<select id="verifySignatures"><option value="2">Enabled (v2 signatures)</option><option value="0">Disabled — trusted local testing only</option></select></label>
           </div><div class="toggle-grid">
             <label class="toggle-card"><input id="battleye" type="checkbox" checked><span><strong>BattlEye protection</strong><small>Use the official launcher if direct game startup asks for a BattlEye restart.</small></span></label>
             <label class="toggle-card"><input id="persistent" type="checkbox" checked><span><strong>Persistent mission</strong><small>Allows compatible missions to continue after players leave.</small></span></label>
             <label class="toggle-card"><input id="autoInit" type="checkbox"><span><strong>Auto-initialise mission</strong><small>Requires a selected mission and persistent mode.</small></span></label>
+            <label class="toggle-card"><input id="liveMap" type="checkbox"><span><strong>Live map</strong><small>Loads ArmaHost's read-only map script on the server only, so the Live map page can show players, AI, vehicles and markers. Restart the server to apply.</small></span></label>
             <label class="toggle-card"><input id="autoRestart" type="checkbox"><span><strong>Restart the server if it crashes</strong><small>Restarts only the dedicated server, up to 3 times in 10 minutes. Never launches the game.</small></span></label>
           </div></section>
           <div class="form-footer"><span class="muted">Private data lives beside this application in <code>data/</code>.</span><button type="submit" class="button primary">Save configuration</button></div>
@@ -135,6 +138,16 @@
       </section>
       <section id="page-presets" class="page" hidden>
         <section class="panel"><div class="panel-top"><div><h2>Reusable sessions</h2><p>Save a snapshot of your installation, mission, loadout and server options.</p></div></div><div class="preset-create"><label>Preset name<input id="preset-name" maxlength="60" placeholder="Friday co-op · Vanilla"></label><button id="save-preset" class="button primary">Save as preset</button></div><p class="help-text">Presets include passwords and local paths. Keep the data folder private. Loading a preset does not interrupt a running server.</p></section><div id="preset-list" class="item-list"></div>
+      </section>
+      <section id="page-map" class="page" hidden>
+        <section class="panel map-panel"><div class="panel-top"><div><h2>Live map <span id="map-world" class="muted">—</span></h2><p id="map-updated" class="muted"></p></div><span id="map-status" class="state-badge">NOT CHECKED</span></div>
+          <div class="map-toolbar"><label class="map-toggle"><input type="checkbox" id="map-ai" checked> AI</label><label class="map-toggle"><input type="checkbox" id="map-vehicles" checked> Vehicles</label><label class="map-toggle"><input type="checkbox" id="map-markers" checked> Markers</label><label class="map-toggle"><input type="checkbox" id="map-labels"> AI names</label>
+            <span class="map-spacer"></span><button type="button" id="map-zoom-out" class="button subtle" aria-label="Zoom out">−</button><button type="button" id="map-zoom-in" class="button subtle" aria-label="Zoom in">+</button><button type="button" id="map-zoom-reset" class="button subtle">Fit</button></div>
+          <div class="map-frame"><svg id="map-svg" role="img" aria-label="Live positions on the current terrain"></svg><p id="map-empty" class="map-empty">Start the dedicated server to see the live map.</p><div id="map-tooltip" class="map-tooltip" hidden></div></div>
+          <div id="map-counts" class="map-counts"></div>
+          <div class="map-image-row"><input id="map-image-path" placeholder="Full path to a PNG or JPEG map image for this terrain" spellcheck="false"><button type="button" id="map-image-set" class="button subtle">Set map image…</button><button type="button" id="map-image-clear" class="button subtle" hidden>Remove image</button></div>
+          <p class="help-text">Positions come from a small read-only script ArmaHost loads on your dedicated server only (players don't need anything). Turn on Live map in Setup › Session configuration, then Restart Server. Drag to pan, scroll to zoom, hover for details. Map images are optional: use a square top-down image of the whole terrain, e.g. one you export from the in-game map.</p>
+        </section>
       </section>
       <section id="page-logs" class="page" hidden>
         <section class="panel"><div class="panel-top"><div><h2>Live process output</h2><p>Manager events, server stdout/stderr and new RPT lines. No remote command console.</p></div><button id="export-logs" class="button subtle">Export visible session</button></div><div class="log-toolbar"><label>Source<select id="log-source"><option value="all">All sources</option><option value="app">Manager</option><option value="server">Server process</option><option value="rpt">RPT file</option></select></label><label class="grow">Filter<input id="log-filter" placeholder="Filter messages…"></label><label class="inline-check"><input type="checkbox" id="log-pause"> Pause display</label></div><div id="full-log" class="console full-console" tabindex="0" aria-label="Session log"></div><div class="panel-footer"><span id="log-count">0 lines</span><span>Known passwords redacted · Latest 1,000 server-side lines retained</span></div></section>

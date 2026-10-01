@@ -9,12 +9,14 @@ import { ProcessManager, joinSettings } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics } from './discovery.mjs';
 import { hostingInfo } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
+import { MapBackgrounds } from './map-backgrounds.mjs';
 
 const ASSETS = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/desktop.js', ['desktop.js', 'text/javascript; charset=utf-8']],
+  ['/map.js', ['map.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]
 ]);
@@ -35,6 +37,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   await manager.restore();
   const monitor = new LiveMonitor(manager, logs);
   manager.gracefulStop = () => monitor.shutdown();
+  const backgrounds = new MapBackgrounds(dir);
   const token = randomBytes(32).toString('hex');
   let closing = false; let actualPort; let closePromise;
   const refreshSecrets = () => {
@@ -54,7 +57,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     const send = (code, body, type = 'application/json; charset=utf-8') => { res.writeHead(code, { 'Content-Type': type }); res.end(type.startsWith('application/json') ? JSON.stringify(body) : body); };
     try {
@@ -72,6 +75,12 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         if (route === 'GET /api/state') return send(200, state());
         if (route === 'GET /api/network') return send(200, hostingInfo(manager.child ? manager.activeSettings : store.snapshot().settings));
         if (route === 'GET /api/live') return send(200, monitor.snapshot());
+        if (route === 'GET /api/map') return send(200, manager.mapSnapshot());
+        if (route === 'GET /api/map/background') {
+          const image = await backgrounds.get(url.searchParams.get('world'));
+          if (!image) { res.writeHead(204); res.end(); return; } // no image saved: the map shows the grid only
+          res.writeHead(200, { 'Content-Type': image.type, 'Cache-Control': 'no-store' }); res.end(image.data); return;
+        }
         if (route === 'GET /api/logs') {
           const after = Number(url.searchParams.get('after') || 0);
           if (!Number.isSafeInteger(after) || after < 0) throw new AppError('Invalid log cursor.');
@@ -101,6 +110,8 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
+        else if (route === 'POST /api/map/background') return send(200, await backgrounds.set(body.world, body.path));
+        else if (route === 'POST /api/map/background/clear') return send(200, await backgrounds.clear(body.world));
         else if (route === 'POST /api/server/query') return send(200, await manager.query());
         else if (route === 'POST /api/server/start') await manager.start(store.snapshot().settings);
         else if (route === 'POST /api/server/stop') await manager.stop();

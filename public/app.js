@@ -1,3 +1,4 @@
+import { initMap } from './map.js';
 const $ = id => document.getElementById(id);
 const pages = {
   overview: ['Operations overview', 'Your dedicated server, managed from your own machine.'],
@@ -5,7 +6,8 @@ const pages = {
   missions: ['Mission selection', 'Load a scenario from your installed server content.'],
   mods: ['Build your loadout', 'Choose installed mods for the game, the server, or both.'],
   presets: ['Saved sessions', 'Keep your favourite configurations ready for the next operation.'],
-  logs: ['Session logs', 'Follow process events and inspect startup errors in one place.']
+  logs: ['Session logs', 'Follow process events and inspect startup errors in one place.'],
+  map: ['Live map', 'Players, AI, vehicles and markers from the running server.']
 };
 let token = new URLSearchParams(location.hash.slice(1)).get('token');
 try { if (token) sessionStorage.setItem('arma-local-token', token); else token = sessionStorage.getItem('arma-local-token'); } catch { /* A fragment token also works with storage blocked. */ }
@@ -22,8 +24,8 @@ let logEntries = [];
 let toastTimer;
 let presetSignature = '';
 const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword'];
-const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'starlink', 'starlinkVpn', 'rconEnabled'];
-const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort']);
+const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'starlink', 'starlinkVpn', 'rconEnabled'];
+const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
 const modKey = value => value.toLowerCase().replaceAll('\\', '/').replace(/\/$/, '');
@@ -37,12 +39,19 @@ function showPage(name) {
   for (const [page] of Object.entries(pages)) $(`page-${page}`).hidden = page !== name;
   document.querySelectorAll('[data-page]').forEach(button => { button.classList.toggle('active', button.dataset.page === name); button.setAttribute('aria-current', button.dataset.page === name ? 'page' : 'false'); });
   $('page-title').textContent = pages[name][0]; $('page-description').textContent = pages[name][1];
-  $('breadcrumb').textContent = name[0].toUpperCase() + name.slice(1);
+  $('breadcrumb').textContent = name === 'map' ? 'Live map' : name[0].toUpperCase() + name.slice(1);
   if (name === 'logs') renderLogs();
+  if (name === 'map') liveMap.start(); else liveMap.stop();
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 function authNeeded() { if (!$('auth-dialog').open) $('auth-dialog').showModal(); }
 $('auth-dialog').addEventListener('cancel', event => event.preventDefault());
+async function apiBlob(route) {
+  const response = await fetch(route, { headers: { 'X-Arma-Token': token }, cache: 'no-store', signal: AbortSignal.timeout(30000) });
+  if (response.status === 204 || response.status === 404) return null;
+  if (!response.ok) throw new Error(`Request failed (${response.status}).`);
+  return response.blob();
+}
 async function api(route, body = undefined) {
   if (!token) { authNeeded(); throw new Error('Open the private dashboard link printed in the launcher console.'); }
   const headers = { 'X-Arma-Token': token };
@@ -60,7 +69,7 @@ function collectSettings() {
   const value = {};
   for (const key of inputKeys) value[key] = $(key).value;
   for (const key of flagKeys) value[key] = $(key).checked;
-  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort']) value[key] = Number($(key).value);
+  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort', 'liveMapInterval']) value[key] = Number($(key).value);
   value.mods = structuredClone(draftMods);
   value.modRoots = $('modRoots').value.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
   return value;
@@ -68,7 +77,7 @@ function collectSettings() {
 function populate(settings, revision) {
   for (const key of inputKeys) $(key).value = settings[key];
   for (const key of flagKeys) $(key).checked = settings[key];
-  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort']) $(key).value = settings[key];
+  for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort', 'liveMapInterval']) $(key).value = settings[key];
   $('modRoots').value = settings.modRoots.join('\n');
   draftMods = structuredClone(settings.mods); editRevision = revision; renderMods(); validatePaths();
   renderNetworkDraft();
@@ -410,3 +419,5 @@ else {
   catch (error) { notify(error.message, true); $('offline-banner').hidden = false; }
   setInterval(() => { void poll(); }, 2000);
 }
+
+const liveMap = initMap({ api, apiBlob, notify, isVisible: () => !$('page-map').hidden });

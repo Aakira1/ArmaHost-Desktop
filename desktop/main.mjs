@@ -60,7 +60,8 @@ async function boot() {
   };
   ipcMain.handle('desktop:pick', async (event, kind) => {
     trusted(event);
-    if (!['game', 'server', 'mod', 'root'].includes(kind)) throw new Error('Unknown picker.');
+    if (!['game', 'server', 'mod', 'root', 'image'].includes(kind)) throw new Error('Unknown picker.');
+    if (kind === 'image') { const picked = await dialog.showOpenDialog(window, { title: 'Choose a map image for this terrain', properties: ['openFile'], filters: [{ name: 'Map image', extensions: ['png', 'jpg', 'jpeg'] }] }); return picked.canceled ? null : picked.filePaths[0]; }
     const directory = kind === 'mod' || kind === 'root';
     const result = await dialog.showOpenDialog(window, { title: directory ? 'Choose an installed mod folder' : 'Choose Arma 3 executable', properties: [directory ? 'openDirectory' : 'openFile'], ...(directory ? {} : { filters: [{ name: 'Windows executable', extensions: ['exe'] }] }) });
     return result.canceled ? null : result.filePaths[0];
@@ -95,7 +96,7 @@ async function boot() {
     { label: 'File', submenu: [{ label: 'Open data folder', click: () => { void shell.openPath(dir); } }, { type: 'separator' }, { label: 'Quit', accelerator: 'Alt+F4', click: () => { void requestClose(); } }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.3.3', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
+    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.4.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
   ]));
   window.once('ready-to-show', () => window.show());
   await window.loadURL(backend.url + '/#token=' + backend.token);
