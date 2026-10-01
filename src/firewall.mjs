@@ -27,7 +27,7 @@ $others = @(Get-NetFirewallRule -Group '${RULE_GROUP}' | Where-Object { $_.Displ
 $networks = @(Get-NetConnectionProfile | ForEach-Object { [string]$_.NetworkCategory })
 $blocks = @(Get-NetFirewallApplicationFilter -Program $env:AH_PROGRAM | Get-NetFirewallRule | Where-Object { [string]$_.Action -eq 'Block' -and [string]$_.Direction -eq 'Inbound' -and [string]$_.Enabled -eq 'True' } | ForEach-Object { [pscustomobject]@{ name = [string]$_.Name; displayName = [string]$_.DisplayName; profile = [string]$_.Profile } })
 $ports = ''; $program = ''
-if ($rule) { $ports = [string](($rule | Get-NetFirewallPortFilter).LocalPort -join ','); $program = [string]($rule | Get-NetFirewallApplicationFilter).Program }
+if ($rule) { $ports = [string](($rule | Get-NetFirewallPortFilter).LocalPort -join ','); $program = [Environment]::ExpandEnvironmentVariables([string]($rule | Get-NetFirewallApplicationFilter).Program) }
 [pscustomobject]@{ exists = [bool]$rule; enabled = [bool]($rule -and [string]$rule.Enabled -eq 'True'); profile = $(if ($rule) { [string]$rule.Profile } else { '' }); ports = $ports; program = $program; others = $others; networks = $networks; blocks = $blocks } | ConvertTo-Json -Compress -Depth 4`;
 }
 export function allowScript(s, profiles) {
@@ -89,7 +89,7 @@ export class Firewall {
     const ok = raw.exists && raw.enabled && String(raw.ports) === `${s.port}-${s.port + 4}` && path.win32.normalize(raw.program || '').toLowerCase() === path.win32.normalize(s.serverExe).toLowerCase();
     const networks = list(raw.networks);
     const blocks = list(raw.blocks).map(b => ({ name: String(b.name), displayName: String(b.displayName), profile: String(b.profile) }));
-    return { supported: true, name: ruleName(s.port), exists: Boolean(raw.exists), ok, profile: raw.profile || '', networks, profiles: firewallProfiles(networks),
+    return { supported: true, name: ruleName(s.port), exists: Boolean(raw.exists), enabled: Boolean(raw.enabled), ports: String(raw.ports || ''), program: String(raw.program || ''), ok, profile: raw.profile || '', networks, profiles: firewallProfiles(networks),
       stale: list(raw.others).map(String), blocks,
       message: blocks.length ? `Windows has ${blocks.length} rule(s) blocking this server program. Blocking rules win over allow rules, so friends can't connect until they are removed.`
         : ok ? `Allowed: inbound UDP ${s.port}-${s.port + 4} for this server on ${raw.profile} networks.`
@@ -104,7 +104,7 @@ export class Firewall {
     const before = await this.status(s);
     await this.runAsAdmin(allowScript(s, before.profiles || ['Private']));
     const after = await this.status(s);
-    if (!after.ok) throw new AppError('The rule could not be confirmed after adding it. Check Windows Defender Firewall > Advanced settings > Inbound Rules.', 500);
+    if (!after.ok) throw new AppError(`The rule could not be confirmed after adding it (Windows reports: ${after.error || `exists ${after.exists}, enabled ${after.enabled}, ports ${after.ports || 'none'}, program ${after.program || 'none'}`}). Check Windows Defender Firewall > Advanced settings > Inbound Rules.`, 500);
     return after;
   }
   async remove(s) {
