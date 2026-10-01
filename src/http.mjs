@@ -17,6 +17,7 @@ const ASSETS = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/desktop.js', ['desktop.js', 'text/javascript; charset=utf-8']],
   ['/map.js', ['map.js', 'text/javascript; charset=utf-8']],
+  ['/topo-render.js', ['topo-render.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]
 ]);
@@ -84,8 +85,14 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
             const roots = [active.serverExe && path.dirname(active.serverExe), saved.gameExe && path.dirname(saved.gameExe), ...[...active.mods, ...saved.mods].filter(m => m.enabled).map(m => m.path)];
             if (snap.frame.pictureMap && !snap.demo) void backgrounds.ensureAuto(world, snap.frame.pictureMap, roots);
             snap.background = await backgrounds.status(world);
+            snap.topo = await manager.topo.status(world);
           }
           return send(200, snap);
+        }
+        if (route === 'GET /api/map/topo') {
+          const data = await manager.topo.read(url.searchParams.get('world'));
+          if (!data) { res.writeHead(204); res.end(); return; }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', 'Cache-Control': 'no-store' }); res.end(data); return;
         }
         if (route === 'GET /api/map/background') {
           const image = await backgrounds.get(url.searchParams.get('world'));

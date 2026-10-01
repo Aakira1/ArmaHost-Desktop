@@ -29,6 +29,7 @@ class CfgFunctions
         {
             file = "\\armahost_map\\functions";
             class feed { postInit = 1; };
+            class topo { postInit = 1; };
         };
     };
 };
@@ -92,13 +93,96 @@ ARMAHOST_mapFeed = true;
 `;
 }
 
-export function buildMapAddon(interval) {
-  return packPbo({ 'config.cpp': CONFIG_CPP, 'functions\\fn_feed.sqf': feedScript(interval) }, { prefix: MAP_PREFIX });
+export const TOPO_LIMITS = { grid: 400, trees: 200, roads: 60000, buildings: 150000, locations: 3000 };
+const TOPO_ROADS = ['MAIN ROAD', 'ROAD', 'TRACK', 'TRAIL'];
+const TOPO_BUILDINGS = ['HOUSE', 'BUILDING', 'CHURCH', 'CHAPEL', 'FUELSTATION', 'HOSPITAL', 'LIGHTHOUSE', 'BUNKER', 'FORTRESS', 'VIEW-TOWER', 'TRANSMITTER', 'WATERTOWER', 'RUIN', 'STACK', 'TOURISM', 'POWERSOLAR', 'POWERWIND', 'SHIPWRECK'];
+const TOPO_LOCATIONS = ['NameCityCapital', 'NameCity', 'NameVillage', 'NameLocal', 'NameMarine', 'Airport', 'Hill', 'Mount'];
+const sqfList = list => '[' + list.map(s => `"${s}"`).join(', ') + ']';
+// One-time topographic export of the loaded terrain (heights, trees, roads, buildings, place names),
+// using only standard read-only commands available on a retail dedicated server. Skipped for terrains
+// ArmaHost has already cached. Runs slowly in the background so it doesn't disturb the mission.
+export function topoScript(cachedWorlds = []) {
+  const cached = cachedWorlds.map(w => String(w).toLowerCase()).filter(w => /^[a-z0-9_]{1,64}$/.test(w));
+  return `// ArmaHost Live Map: one-time topographic export for this terrain. Server only; read-only.
+if (!isServer) exitWith {};
+if (!isNil "ARMAHOST_topo") exitWith {};
+ARMAHOST_topo = true;
+if ((toLower worldName) in ${sqfList(cached)}) exitWith {};
+[] spawn {
+    sleep 15;
+    private _ws = worldSize;
+    private _id = (round (diag_tickTime * 1000)) toFixed 0;
+    private _bad = "|^~""" + toString [10, 13];
+    private _clean = { ((_this splitString _bad) joinString " ") select [0, 60] };
+    private _out = { diag_log text ("AHTOPO|" + _id + "|" + _this) };
+    private _pack = {
+        params ["_kind", "_records"];
+        private _line = "";
+        {
+            if (_line != "" && {count _line + count _x > 900}) then { (_kind + "|" + _line) call _out; _line = ""; };
+            _line = [_line + "^" + _x, _x] select (_line == "");
+        } forEach _records;
+        if (_line != "") then { (_kind + "|" + _line) call _out; };
+    };
+    private _n = (round (_ws / (25 max (_ws / ${TOPO_LIMITS.grid})))) min ${TOPO_LIMITS.grid};
+    private _cell = _ws / _n;
+    ("B|" + (worldName call _clean) + "|" + (_ws toFixed 0) + "|" + (_n toFixed 0)) call _out;
+    for "_j" from 0 to (_n - 1) do {
+        private _y = (_j + 0.5) * _cell;
+        private _row = [];
+        for "_i" from 0 to (_n - 1) do { _row pushBack ((round (getTerrainHeightASL [(_i + 0.5) * _cell, _y])) toFixed 0); };
+        ("H|" + (_j toFixed 0) + "|" + (_row joinString ",")) call _out;
+        if (_j % 10 == 0) then { ("P|" + ((round (_j / _n * 40)) toFixed 0)) call _out; sleep 0.05; };
+    };
+    private _fn = (round (_ws / (100 max (_ws / ${TOPO_LIMITS.trees})))) min ${TOPO_LIMITS.trees};
+    private _fc = _ws / _fn;
+    ("G|" + (_fn toFixed 0)) call _out;
+    for "_j" from 0 to (_fn - 1) do {
+        private _y = (_j + 0.5) * _fc;
+        private _row = [];
+        for "_i" from 0 to (_fn - 1) do {
+            private _trees = count (nearestTerrainObjects [[(_i + 0.5) * _fc, _y], ["TREE", "SMALL TREE"], _fc * 0.5, false, true]);
+            _row pushBack ((_trees min 999) toFixed 0);
+        };
+        ("T|" + (_j toFixed 0) + "|" + (_row joinString ",")) call _out;
+        ("P|" + ((40 + round (_j / _fn * 40)) toFixed 0)) call _out;
+        sleep 0.05;
+    };
+    private _centre = [_ws / 2, _ws / 2];
+    private _roads = (nearestTerrainObjects [_centre, ${sqfList(TOPO_ROADS)}, _ws * 0.75, false, true]) select [0, ${TOPO_LIMITS.roads}];
+    ["R", _roads apply {
+        private _info = getRoadInfo _x;
+        private _b = _info select 6;
+        private _e = _info select 7;
+        [(_info select 0) call _clean, (_info select 1) toFixed 1, (_b select 0) toFixed 0, (_b select 1) toFixed 0, (_e select 0) toFixed 0, (_e select 1) toFixed 0, ["0", "1"] select (_info select 8)] joinString "~"
+    }] call _pack;
+    ("P|90") call _out;
+    sleep 1;
+    private _houses = (nearestTerrainObjects [_centre, ${sqfList(TOPO_BUILDINGS)}, _ws * 0.75, false, true]) select [0, ${TOPO_LIMITS.buildings}];
+    ["S", _houses apply {
+        private _p = getPosWorld _x;
+        private _bb = boundingBoxReal _x;
+        private _a = _bb select 0;
+        private _z = _bb select 1;
+        [(_p select 0) toFixed 0, (_p select 1) toFixed 0, (getDir _x) toFixed 0, (((_z select 0) - (_a select 0)) min 200) toFixed 0, (((_z select 1) - (_a select 1)) min 200) toFixed 0] joinString "~"
+    }] call _pack;
+    private _locations = (nearestLocations [_centre, ${sqfList(TOPO_LOCATIONS)}, _ws * 0.75]) select [0, ${TOPO_LIMITS.locations}];
+    ["L", _locations apply {
+        private _p = locationPosition _x;
+        [type _x, (text _x) call _clean, (_p select 0) toFixed 0, (_p select 1) toFixed 0] joinString "~"
+    }] call _pack;
+    ("E|" + (_n toFixed 0) + "|" + (_fn toFixed 0) + "|" + (count _roads toFixed 0) + "|" + (count _houses toFixed 0) + "|" + (count _locations toFixed 0)) call _out;
+};
+`;
 }
-export async function writeMapAddon(dir, interval) {
+
+export function buildMapAddon(interval, cachedWorlds = []) {
+  return packPbo({ 'config.cpp': CONFIG_CPP, 'functions\\fn_feed.sqf': feedScript(interval), 'functions\\fn_topo.sqf': topoScript(cachedWorlds) }, { prefix: MAP_PREFIX });
+}
+export async function writeMapAddon(dir, interval, cachedWorlds = []) {
   const addons = path.join(dir, 'addons'); await mkdir(addons, { recursive: true });
   const target = path.join(addons, `${MAP_PREFIX}.pbo`); const temporary = `${target}.tmp`;
-  try { await writeFile(temporary, buildMapAddon(interval)); await rename(temporary, target); }
+  try { await writeFile(temporary, buildMapAddon(interval, cachedWorlds)); await rename(temporary, target); }
   finally { await unlink(temporary).catch(() => {}); }
   return target;
 }

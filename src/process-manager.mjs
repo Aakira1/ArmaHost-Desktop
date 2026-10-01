@@ -13,6 +13,7 @@ import { RptTail } from './logs.mjs';
 import { hostingInfo, bindAddress, gameAddress } from './network.mjs';
 import { queryServer } from './query.mjs';
 import { LiveMap } from './live-map.mjs';
+import { TopoBuilder } from './topo.mjs';
 import { writeMapAddon } from './map-addon.mjs';
 import { gameLaunch, armaProcesses, ownsServer } from './game-launch.mjs';
 
@@ -68,11 +69,11 @@ export class ProcessManager {
     this.profilesDir = path.join(dir, 'profiles'); this.tailTimer = null;
     this.battleyeDir = path.join(dir, 'runtime', 'BattlEye');
     this.sessionFile = path.join(dir, 'runtime', 'server-session.json');
-    this.mapAddonDir = path.join(dir, 'runtime', '@ArmaHostMap'); this.liveMap = new LiveMap();
+    this.mapAddonDir = path.join(dir, 'runtime', '@ArmaHostMap'); this.liveMap = new LiveMap(); this.topo = new TopoBuilder(path.join(dir, 'maps', 'topo'));
   }
   startLogTail() {
     const rpt = new RptTail(this.profilesDir, this.logs, this.startedAt - 1000);
-    rpt.filter = line => this.liveMap.ingest(line); // AHMAP frames feed the map, not the log
+    rpt.filter = line => this.liveMap.ingest(line) || this.topo.ingest(line); // map data feeds the map, not the log
     const consoleTail = new RptTail(path.dirname(this.configFile), this.logs, this.startedAt - 1000, /^server-console\.log$/i, 'server');
     this.logTails = [rpt, consoleTail];
     void rpt.poll(); void consoleTail.poll();
@@ -161,7 +162,7 @@ export class ProcessManager {
     }
     if (s.liveMap && !this.demo) {
       serverArgs(s, this); // validates the addon path before anything is written
-      await writeMapAddon(this.mapAddonDir, s.liveMapInterval);
+      await writeMapAddon(this.mapAddonDir, s.liveMapInterval, await this.topo.cachedWorlds());
       this.logs.add('Live map: loading the ArmaHost server-only map addon (-serverMod).');
     }
     await atomicWrite(this.configFile, renderConfig(s));
@@ -189,7 +190,7 @@ export class ProcessManager {
       stream.setEncoding('utf8');
       stream.on('data', chunk => {
         const lines = (pending + chunk).split(/\r?\n/); pending = lines.pop().slice(-8192);
-        for (const line of lines) if (!this.liveMap.ingest(line)) this.logs.add(line, 'server');
+        for (const line of lines) if (!this.liveMap.ingest(line) && !this.topo.ingest(line)) this.logs.add(line, 'server');
       });
       stream.on('end', () => { if (pending) this.logs.add(pending, 'server'); });
     };

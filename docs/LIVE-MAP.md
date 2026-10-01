@@ -15,8 +15,20 @@ The **Live map** page shows players, AI, vehicles and mission markers from your 
 - Limits per update: 600 units, 300 vehicles and 300 markers. With more than 300 units and vehicles, updates slow to at least every 5 s.
 - Busy missions add tens of KB per minute to the RPT.
 
-## Map images
-ArmaHost shows the **real terrain map automatically**, with nothing to download:
+## Base maps
+Choose the base map above the map. Every option uses data you already own; nothing is downloaded.
+
+### Topographic (default)
+An in-game-style map: sea depth, relief shading, contour lines (every 10 m, or 20 m on large terrains, with a bold line every fifth), forests, roads (main roads, roads, tracks, trails), buildings, and town, hill and airport names.
+
+- **How it's built:** the first time a terrain runs with Live map on, the ArmaHost server script reads it using standard read-only commands available on any dedicated server: `getTerrainHeightASL`, `nearestTerrainObjects`, `getRoadInfo`, `boundingBoxReal` and `nearestLocations`.
+- **While it builds:** it works slowly in the background over a few minutes, and the page shows its progress. You keep using the satellite map in the meantime.
+- **Caching:** the result is saved in `data/maps/topo` and drawn in the app. Next time that terrain is skipped entirely, with no extra load on the server.
+- **Limits:** up to 400 × 400 height samples, 200 × 200 forest cells, 60,000 road segments, 150,000 buildings and 3,000 place names.
+- **Side effects:** it adds a few MB to that session's server log (RPT), once per terrain. With very large building counts the server may hitch briefly for a moment while collecting them.
+
+### Satellite
+The terrain's own overview map, shown automatically:
 
 1. The server script reports the loaded terrain (`worldName`) and the path of its built-in overview map, the terrain's `pictureMap` (for example `A3\map_Altis\data\pictureMap_ca.paa`).
 2. ArmaHost finds that file in the `.pbo` archives of **your own installation**: the dedicated server folder, the Arma 3 game folder (including DLC folders such as Expansion and Enoch), and any enabled mod folders. It only reads the archive headers to locate it.
