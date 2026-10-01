@@ -52,3 +52,5 @@
 .map-tooltip{position:absolute;pointer-events:none;background:#000d;border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12px;white-space:pre;z-index:2}
 .map-counts{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.map-chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--muted)}.map-chip strong{color:var(--text)}
 .map-image-row{display:flex;gap:10px;flex-wrap:wrap}.map-image-row input{flex:1;min-width:220px}
+
+#join-pending{flex-wrap:wrap;align-items:center;margin-top:10px}

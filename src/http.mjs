@@ -116,7 +116,8 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/server/start') await manager.start(store.snapshot().settings);
         else if (route === 'POST /api/server/stop') await manager.stop();
         else if (route === 'POST /api/server/restart') await manager.restart(store.snapshot().settings);
-        else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings));
+        else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings, { whenReady: body.whenReady === true }));
+        else if (route === 'POST /api/game/join/cancel') return send(200, manager.cancelJoin());
         else if (route === 'POST /api/game/join-remote') return send(200, await manager.joinRemote(store.snapshot().settings));
         else if (route === 'POST /api/quit') {
           send(200, { message: 'Stopping the managed server and closing Local Host.' });

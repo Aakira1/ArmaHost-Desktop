@@ -58,8 +58,8 @@ export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
     this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
-      gracefulStopMs: 15000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
-    this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false;
+      gracefulStopMs: 15000, joinPollMs: 2000, joinQueryMs: 5000, joinWaitMs: 600000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
+    this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false; this.pendingJoin = null;
     logs?.listeners?.add(entry => this.observe(entry));
     this.dir = dir; this.logs = logs; this.demo = demo; this.child = null;
     this.state = 'stopped'; this.busy = null; this.startedAt = null;
@@ -113,6 +113,7 @@ export class ProcessManager {
         maxPlayers: s.maxPlayers, mods: s.mods.filter(m => m.enabled).length,
         modList: s.mods.filter(m => m.enabled).map(m => ({ path: m.path, scope: m.scope })), battleye: s.battleye, rconEnabled: s.rconEnabled } : null,
       ready: this.child ? this.ready : null, autoRestartPending: Boolean(this.restartTimer),
+      pendingJoin: this.pendingJoin ? { since: this.pendingJoin.since } : null,
       readiness: this.demo ? 'Demo only — no game server.' : this.child && this.ready ? `${this.ready.label} (seen in the server log).` : 'Process running; the server log has not yet shown it online. Use Test server is up to query it.'
     };
   }
@@ -289,7 +290,7 @@ export class ProcessManager {
       return { ok: false, host, port: s.port + 1, message: `${error.message} The server may still be loading (this can take a minute, longer with mods), or it crashed — check the log.` };
     }
   }
-  async stop() { this.cancelAutoRestart(); return this.perform('stopping', () => this.stopInternal()); }
+  async stop() { this.cancelAutoRestart(); this.cancelJoin(); return this.perform('stopping', () => this.stopInternal()); }
   async stopInternal() {
     const child = this.child;
     if (!child) { if (this.state === 'failed') this.state = 'stopped'; return this.status(); }
@@ -319,11 +320,50 @@ export class ProcessManager {
   async restart(settings) {
     return this.perform('restarting', async () => { await this.stopInternal(); return this.startInternal(settings); });
   }
-  async join(savedSettings) {
+  async join(savedSettings, { whenReady = false } = {}) {
+    if (whenReady && this.child && !this.ready && !this.demo) {
+      if (this.pendingJoin) throw new AppError('Already waiting for the server to come online. The game will launch automatically.', 409);
+      return this.waitThenJoin(savedSettings);
+    }
     return this.perform('launching the game', async () => {
       if (!this.child) throw new AppError('Start the managed server first.', 409);
       return this.launchGame(joinSettings(this.activeSettings, savedSettings), undefined, savedSettings);
     });
+  }
+  // Launch the game only once the server is joinable, so the game and server don't load at the same
+  // time. Does not hold the busy lock, so Stop/Restart stay available while waiting.
+  waitThenJoin(savedSettings) {
+    const child = this.child; const since = Date.now();
+    const pending = { since, timer: null }; this.pendingJoin = pending;
+    this.logs.add('Join requested while the server is loading. The game will launch automatically once the server is online.');
+    let lastQuery = 0; const queryEvery = this.deps.joinQueryMs; // Steam query at most this often
+    const tick = async () => {
+      if (this.pendingJoin !== pending) return;
+      if (this.child !== child || this.closing) { this.pendingJoin = null; return; }
+      if (!this.ready && Date.now() - lastQuery >= queryEvery) {
+        lastQuery = Date.now();
+        try { await this.query(); } catch { /* Still loading. */ }
+        if (this.pendingJoin !== pending) return;
+      }
+      if (this.ready) {
+        this.pendingJoin = null;
+        try { const result = await this.join(savedSettings); this.logs.add(`Server online. ${result.message}`); }
+        catch (error) { this.lastError = `Automatic join failed: ${error.message}`; this.logs.add(this.lastError); }
+        return;
+      }
+      if (Date.now() - since >= this.deps.joinWaitMs) {
+        this.pendingJoin = null;
+        this.lastError = `The server did not come online within ${Math.round(this.deps.joinWaitMs / 60000) || 1} minute(s), so the game was not launched. Check the server log, or press Launch Game & Join to start it anyway.`;
+        this.logs.add(this.lastError); return;
+      }
+      pending.timer = setTimeout(() => { void tick(); }, this.deps.joinPollMs); pending.timer.unref?.();
+    };
+    void tick();
+    return { waiting: true, message: 'The server is still loading. The game will launch automatically once it is online.' };
+  }
+  cancelJoin() {
+    if (this.pendingJoin) { clearTimeout(this.pendingJoin.timer); this.pendingJoin = null; this.logs.add('Waiting join cancelled.'); }
+    return this.status();
   }
   async joinRemote(settings) {
     return this.perform('launching the game', async () => {
@@ -358,7 +398,7 @@ export class ProcessManager {
       return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
   }
   async close({ leaveRunning = false } = {}) {
-    this.closing = true; this.cancelAutoRestart();
+    this.closing = true; this.cancelAutoRestart(); this.cancelJoin();
     while (this.busy) await sleep(50);
     if (this.child && (!leaveRunning || this.demo)) await this.stop();
     clearInterval(this.tailTimer);

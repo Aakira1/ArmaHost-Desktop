@@ -9,7 +9,7 @@ export function defaults() {
     gameExe: '', serverExe: '', serverName: 'Arma 3 Local Operations',
     port: 2302, maxPlayers: 16, password: '', adminPassword: '',
     difficulty: 'Regular', mission: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
-    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, mods: [], modRoots: [],
+    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, fastJoin: true, hugePages: false, mods: [], modRoots: [],
     rconEnabled: false, rconPort: 2307, rconPassword: '', remoteHost: '', remotePort: 2302, remotePassword: ''
   };
 }
@@ -75,7 +75,7 @@ export function validateSettings(input) {
   for (const [key, min, max] of [['port', 1024, 65531], ['maxPlayers', 1, 128]]) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new AppError(`${key} must be a whole number from ${min} to ${max}.`);
   }
-  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'starlink', 'starlinkVpn', 'rconEnabled']) {
+  for (const key of ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'starlink', 'starlinkVpn', 'rconEnabled']) {
     if (typeof s[key] !== 'boolean') throw new AppError(`${key} must be true or false.`);
   }
   if (![0, 2].includes(s.verifySignatures)) throw new AppError('Signature verification must be 0 or 2.');
@@ -151,7 +151,8 @@ export function serverArgs(s, { configFile, profilesDir, battleyeDir = path.join
     `-ip=${bindAddress(s)}`, ...(s.rconEnabled ? [`-BEpath=${battleyeDir}`] : []), ...(s.autoInit ? ['-autoInit'] : []), ...modArgs(s, false, s.liveMap && mapAddonDir ? [mapAddonDir] : [])];
 }
 export function clientArgs(s, connection = { host: gameAddress(s), port: s.port, password: s.password }) {
-  return ['-noSplash', '-skipIntro', `-connect=${connection.host}`, `-port=${connection.port}`,
+  // -world=empty skips loading a terrain for the main-menu background, a large part of client startup.
+  return ['-noSplash', '-skipIntro', ...(s.fastJoin ? ['-world=empty'] : []), ...(s.hugePages ? ['-hugePages'] : []), `-connect=${connection.host}`, `-port=${connection.port}`,
     ...(connection.password ? [`-password=${connection.password}`] : []), ...modArgs(s, true)];
 }
 export function redactArgs(args) { return args.map(a => /^-password=/i.test(a) ? '-password=[REDACTED]' : a); }

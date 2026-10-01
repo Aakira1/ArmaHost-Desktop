@@ -21,7 +21,7 @@
       <button class="nav" data-page="logs"><span class="nav-icon">≡</span> Logs <span class="nav-number">06</span></button>
       <button class="nav" data-page="map"><span class="nav-icon">⌖</span> Live map <span class="nav-number">07</span></button>
     </nav>
-    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.4.0</small></div>
+    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.4.1</small></div>
   </aside>
   <div class="workspace">
     <header class="topbar"><div><span class="muted">Workspace</span><span class="slash">/</span><strong id="breadcrumb">Overview</strong></div><div class="top-status"><span id="mode-badge" class="badge">LOCAL</span><span id="connection"><i class="dot"></i> Connecting</span></div></header>
@@ -44,6 +44,7 @@
             <div class="server-note"><span class="dot"></span><span id="process-note">The manager controls only the server it starts. Your game is separate.</span></div>
             <div class="process-label game-label">PROCESS 2 · ARMA 3 GAME CLIENT — separate, optional, started only by you</div>
             <div class="server-actions"><button id="join-game" class="button" disabled>Launch Game &amp; Join ↗</button></div>
+            <div id="join-pending" class="notice" hidden><strong>Waiting for the server…</strong><span id="join-pending-text">The game will launch automatically once the server is online.</span><button type="button" id="join-now" class="button subtle">Launch now</button><button type="button" id="join-cancel" class="button subtle">Cancel</button></div>
           </section>
           <section class="panel preflight-card"><div class="panel-top"><h2>Before you deploy</h2><span class="muted">01—03</span></div>
             <div class="check-row"><span id="game-check" class="step-count">01</span><div><strong>Game installation (Join only)</strong><small id="game-check-note">Optional — only needed to launch the game.</small></div></div>
@@ -96,6 +97,8 @@
           </section>
           <section class="panel"><div class="panel-top"><div><h2>Arma 3 Game Installation</h2><p>Optional. Only used by Launch Game &amp; Join; never needed to start a dedicated server.</p></div></div>
             <div class="form-grid"><label class="span-2">Arma 3 game executable (arma3_x64.exe)<input id="gameExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3\arma3_x64.exe" autocomplete="off" spellcheck="false" list="game-paths"><small>Full path to arma3_x64.exe or arma3.exe. No surrounding quotes. Must be a different file from the server executable.</small><small id="gameExe-error" class="field-error" hidden></small></label><datalist id="game-paths"></datalist></div>
+            <div class="toggle-grid"><label class="toggle-card"><input id="fastJoin" type="checkbox" checked><span><strong>Fast join</strong><small>Adds <code>-world=empty</code> so the game skips loading a terrain for its main menu and goes straight to connecting. Recommended.</small></span></label>
+            <label class="toggle-card"><input id="hugePages" type="checkbox"><span><strong>Large memory pages</strong><small>Adds <code>-hugePages</code>. Can speed up loading on PCs with plenty of RAM; turn off if the game becomes unstable.</small></span></label></div>
           </section>
           <section class="panel"><div class="panel-top"><div><h2>Live players & test messages</h2><p>Uses BattlEye RCon on this PC. Save and restart to apply these settings.</p></div></div>
             <label class="toggle-card"><input id="rconEnabled" type="checkbox"><span><strong>Enable live server monitoring</strong><small>Requires BattlEye. Checks players every 5 seconds and receives BattlEye console events.</small></span></label>
