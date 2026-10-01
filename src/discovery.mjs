@@ -151,7 +151,7 @@ export async function diagnostics(s, dir, demo, { running = false, processes = n
     const source = path.join(serverDir, 'BattlEye', dll);
     add('BattlEye server library', await isFile(source), (await isFile(source)) ? source : `Missing ${source}. Verify the Arma 3 Server files in Steam.`, demo);
   }
-  add('Mission', Boolean(s.mission), s.mission ? s.mission : 'No mission chosen. Players will see an empty Role Assignment screen until an admin picks one (#login, then #missions). Choose one under Missions.', true);
+  add('Mission', Boolean(s.mission), s.mission ? s.mission : 'Optional. No mission set: players see an empty Role Assignment screen until an admin picks one in game (#login, then #missions), or use Missions › Co-op starter.', true);
   add('Admin Steam ID', s.adminSteamIds.length > 0, s.adminSteamIds.length ? `${s.adminSteamIds.length} admin(s) can type #login in game without the password.` : 'Optional: add your Steam ID in Setup so you can type #login in game without the admin password.', true);
   for (const m of s.mods.filter(m => m.enabled)) add(`Mod: ${path.basename(m.path)}`, await isDirectory(m.path), (await isDirectory(m.path)) ? `${m.path} (${m.scope})` : `Folder not found: ${m.path}. Reinstall the mod or remove it from the loadout.`);
   if (s.mods.some(m => m.enabled) && s.verifySignatures) add('Mod signing keys', false, 'Copy the trusted mods’ .bikey files into the server keys folder. This app does not install keys or resolve dependencies.', true);

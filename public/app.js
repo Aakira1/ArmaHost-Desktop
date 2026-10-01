@@ -158,7 +158,7 @@ function applyState(next, hydrate = false) {
   if (hydrate || (!dirty && editRevision !== next.revision)) { populate(next.settings, next.revision); setDirty(false); }
   const s = next.status.active || next.settings;
   $('hero-name').textContent = s.serverName;
-  $('hero-mission').textContent = s.mission || 'No mission chosen: players get an empty lobby until an admin picks one (#login, then #missions).';
+  $('hero-mission').textContent = s.mission || 'No mission set (optional): the admin picks one in game with #login, then #missions.';
   $('hero-mission').classList.toggle('warning-text', !s.mission);
   $('hero-address').textContent = next.network?.address || (next.network?.missing === 'publicIp' ? 'Public IP not set' : `127.0.0.1:${s.port}`);
   $('hosting-cta').hidden = next.demo || next.network?.scope !== 'local';
@@ -238,11 +238,11 @@ for (const id of ['save-all', 'save-mission', 'save-mods']) onButton(id, () => s
 onButton('discard', async () => { if (await confirmAction('Discard unsaved edits?', 'This reloads the last saved configuration. The running server is not changed.', 'Discard edits')) { applyState(await api('/api/state'), true); } });
 onButton('start-server', async () => {
   if (dirty) await save(true);
-  if (!state.demo && !state.settings.mission) {
-    // Without a mission the server waits for an admin to pick one, so everyone else sees an empty Role Assignment screen.
-    const start = await confirmAction('No mission chosen', 'Players will see an empty Role Assignment screen until an admin picks a mission. No missions installed? Cancel and use the Co-op starter on the Missions page to create one in a click. Or start anyway: join, type #login (add your Steam ID in Setup to skip the password), then #missions.', 'Start anyway');
-    if (!start) { showPage('missions'); $('coop-panel').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-  } applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Dedicated server process started (the game was not launched). Check its logs before joining.'); });
+  const noMission = !state.demo && !state.settings.mission;
+  applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Dedicated server process started (the game was not launched). Check its logs before joining.');
+  // A mission is optional: without one, the admin picks it in game.
+  if (noMission) setTimeout(() => notify('Started without a mission, which is fine. To pick one in game: type #login, then #missions. Or use Missions › Co-op starter.'), 2500);
+});
 onButton('stop-server', async () => {
   if (!await confirmAction('Stop the server?', 'This terminates the managed server process and may lose unsaved mission progress. Save in the mission first. Your game is not closed.', 'Stop server')) return;
   applyState(await api('/api/server/stop', {})); notify('Managed server process stopped.');

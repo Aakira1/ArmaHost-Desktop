@@ -12,4 +12,4 @@ A dedicated server can only run missions in its `MPMissions` folder, and Steam p
 
 The mission is a plain folder (`ArmaHost_Coop.<Map>`) in `MPMissions`, so you can open and edit it in the Eden editor. ArmaHost never overwrites a folder it didn't create.
 
-Starting without a mission now points you to the Co-op starter.
+**Missions are optional.** Start no longer stops to ask when no mission is set. The server starts, and ArmaHost shows how to pick a mission in game: type `#login`, then `#missions`.
