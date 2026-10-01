@@ -5,7 +5,7 @@ import path from 'node:path';
 import { AppError, validateSettings, renderConfig, serverArgs, clientArgs, displayCommand } from './config.mjs';
 import { Store } from './store.mjs';
 import { LogBook } from './logs.mjs';
-import { ProcessManager } from './process-manager.mjs';
+import { ProcessManager, joinSettings } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics } from './discovery.mjs';
 import { hostingInfo } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
@@ -80,7 +80,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         if (route === 'GET /api/logs/export') return send(200, { text: logs.text() });
         if (route === 'GET /api/preview') {
           const saved = store.snapshot().settings;
-          const active = manager.child ? { ...manager.activeSettings, gameExe: saved.gameExe } : saved;
+          const active = manager.child ? joinSettings(manager.activeSettings, saved) : saved;
           return send(200, { server: displayCommand(saved.serverExe, serverArgs(saved, manager)),
             client: displayCommand(active.gameExe, clientArgs(active)), config: renderConfig(saved, true),
             clientUsesActive: Boolean(manager.child) });
