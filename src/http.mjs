@@ -6,7 +6,7 @@ import { AppError, validateSettings, renderConfig, serverArgs, clientArgs, displ
 import { Store } from './store.mjs';
 import { LogBook } from './logs.mjs';
 import { ProcessManager, joinSettings } from './process-manager.mjs';
-import { discoverInstallations, scanMissions, scanMods, diagnostics, modInfo } from './discovery.mjs';
+import { discoverInstallations, scanMissions, scanMods, diagnostics, modInfo, steamAccounts } from './discovery.mjs';
 import { Firewall } from './firewall.mjs';
 import { hostingInfo, detectPublicIp, inviteText } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
@@ -162,6 +162,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         else if (route === 'POST /api/game/join') return send(200, await manager.join(store.snapshot().settings, { whenReady: body.whenReady === true }));
         else if (route === 'POST /api/game/join/cancel') return send(200, manager.cancelJoin());
         else if (route === 'POST /api/game/join-remote') return send(200, await manager.joinRemote(store.snapshot().settings));
+        else if (route === 'POST /api/steam/accounts') return send(200, demo ? { accounts: [{ steamId: '76561198000000001', name: 'Demo player', mostRecent: true }], note: 'Demo account.' } : await steamAccounts());
         else if (route === 'POST /api/invite') return send(200, await invite(body.includePassword === true));
         else if (route === 'POST /api/connection/check') return send(200, await connectionCheck());
         else if (route === 'POST /api/firewall/status') return send(200, await firewall.status(store.snapshot().settings));

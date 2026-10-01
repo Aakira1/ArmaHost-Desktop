@@ -25,7 +25,7 @@ let toastTimer;
 let presetSignature = '';
 const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword', 'joinMethod', 'audience'];
 const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'upnp', 'starlink', 'starlinkVpn', 'rconEnabled'];
-const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
+const settingIds = new Set([...inputKeys, ...flagKeys, 'adminSteamIds', 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
 const modKey = value => value.toLowerCase().replaceAll('\\', '/').replace(/\/$/, '');
@@ -73,6 +73,7 @@ function collectSettings() {
   for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort', 'liveMapInterval']) value[key] = Number($(key).value);
   value.mods = structuredClone(draftMods);
   value.modRoots = $('modRoots').value.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
+  value.adminSteamIds = $('adminSteamIds').value.split(/[\s,;]+/).map(v => v.trim()).filter(Boolean);
   return value;
 }
 function populate(settings, revision) {
@@ -80,6 +81,7 @@ function populate(settings, revision) {
   for (const key of flagKeys) $(key).checked = settings[key];
   for (const key of ['port', 'maxPlayers', 'verifySignatures', 'rconPort', 'remotePort', 'liveMapInterval']) $(key).value = settings[key];
   $('modRoots').value = settings.modRoots.join('\n');
+  $('adminSteamIds').value = settings.adminSteamIds.join(', ');
   draftMods = structuredClone(settings.mods); editRevision = revision; renderMods(); validatePaths();
   renderNetworkDraft();
 }
@@ -156,7 +158,8 @@ function applyState(next, hydrate = false) {
   if (hydrate || (!dirty && editRevision !== next.revision)) { populate(next.settings, next.revision); setDirty(false); }
   const s = next.status.active || next.settings;
   $('hero-name').textContent = s.serverName;
-  $('hero-mission').textContent = s.mission || 'Mission selection opens in game.';
+  $('hero-mission').textContent = s.mission || 'No mission chosen: players get an empty lobby until an admin picks one (#login, then #missions).';
+  $('hero-mission').classList.toggle('warning-text', !s.mission);
   $('hero-address').textContent = next.network?.address || (next.network?.missing === 'publicIp' ? 'Public IP not set' : `127.0.0.1:${s.port}`);
   $('hosting-cta').hidden = next.demo || next.network?.scope !== 'local';
   $('hero-network').textContent = s.starlink ? s.starlinkVpn ? 'Friends elsewhere · Starlink VPN' : 'Friends elsewhere · Starlink' : AUDIENCE_LABEL[s.audience || (s.lan ? 'home' : 'self')];
@@ -233,7 +236,13 @@ window.addEventListener('beforeunload', event => { if (dirty && !shuttingDown) {
 $('settings-form').addEventListener('submit', event => { event.preventDefault(); void withBusy(event.submitter, () => save()); });
 for (const id of ['save-all', 'save-mission', 'save-mods']) onButton(id, () => save());
 onButton('discard', async () => { if (await confirmAction('Discard unsaved edits?', 'This reloads the last saved configuration. The running server is not changed.', 'Discard edits')) { applyState(await api('/api/state'), true); } });
-onButton('start-server', async () => { if (dirty) await save(true); applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Dedicated server process started (the game was not launched). Check its logs before joining.'); });
+onButton('start-server', async () => {
+  if (dirty) await save(true);
+  if (!state.demo && !state.settings.mission) {
+    // Without a mission the server waits for an admin to pick one, so everyone else sees an empty Role Assignment screen.
+    const start = await confirmAction('No mission chosen', 'Players will see an empty Role Assignment screen until an admin picks a mission. Choose one under Missions, or start anyway: join, type #login (add your Steam ID in Setup to skip the password), then #missions.', 'Start anyway');
+    if (!start) { showPage('missions'); return; }
+  } applyState(await api('/api/server/start', {})); await refreshPreview(); notify(state.demo ? 'Demo process started. No Arma server is running.' : 'Dedicated server process started (the game was not launched). Check its logs before joining.'); });
 onButton('stop-server', async () => {
   if (!await confirmAction('Stop the server?', 'This terminates the managed server process and may lose unsaved mission progress. Save in the mission first. Your game is not closed.', 'Stop server')) return;
   applyState(await api('/api/server/stop', {})); notify('Managed server process stopped.');
@@ -293,11 +302,29 @@ function showRunning(result) {
 }
 $('running-cancel').addEventListener('click', () => $('running-dialog').close('no'));
 $('running-close').addEventListener('click', () => $('running-dialog').close('yes'));
+// Copies text. The desktop app denies the page clipboard permission, so it copies through the
+// desktop bridge; a browser uses the Clipboard API, then the older copy command.
+async function copyText(text) {
+  if (window.armaDesktop?.copyText) { await window.armaDesktop.copyText(text); return; }
+  try { await navigator.clipboard.writeText(text); return; } catch { /* Try the fallback below. */ }
+  const area = document.createElement('textarea'); area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+  document.body.append(area); area.select();
+  const ok = document.execCommand('copy'); area.remove();
+  if (!ok) throw new Error('Couldn’t copy. Select the text and press Ctrl+C.');
+}
 // Launcher joins: put host:port on the clipboard for the launcher's Direct Connect box.
 async function withCopiedAddress(result) {
   if (!result.connect) return result.message;
-  try { await navigator.clipboard.writeText(`${result.connect.host}:${result.connect.port}`); return `${result.message} Address copied.`; } catch { return result.message; }
+  try { await copyText(`${result.connect.host}:${result.connect.port}`); return `${result.message} Address copied.`; } catch { return result.message; }
 }
+onButton('detect-steam-id', async () => {
+  const result = await api('/api/steam/accounts', {});
+  if (!result.accounts.length) { notify(result.note, true); return; }
+  const account = result.accounts[0];
+  const ids = new Set($('adminSteamIds').value.split(/[\s,;]+/).filter(Boolean)); ids.add(account.steamId);
+  $('adminSteamIds').value = [...ids].join(', '); setDirty();
+  notify(`Added ${account.name} (${account.steamId}) as an admin. Save to apply, then restart the server.`);
+});
 onButton('detect-public-ip', async () => {
   const result = await api('/api/network/public-ip', {});
   if (result.ok) { $('publicIp').value = result.ip; $('publicIp').dispatchEvent(new Event('input', { bubbles: true })); }
@@ -319,14 +346,14 @@ onButton('query-server', async () => {
   $('query-result').textContent = result.message; notify(result.message, !result.ok);
   applyState(await api('/api/state'));  void refreshInvite();
 });
-onButton('copy-command', async () => { await navigator.clipboard.writeText($('detail-command').textContent); notify('Server command copied (passwords redacted).'); });
+onButton('copy-command', async () => { await copyText($('detail-command').textContent); notify('Server command copied (passwords redacted).'); });
 $('error-diagnostics').addEventListener('click', () => $('diagnose-top').click());
-onButton('copy-address', async () => { await navigator.clipboard.writeText($('hero-address').textContent); notify('Local server address copied.'); });
+onButton('copy-address', async () => { await copyText($('hero-address').textContent); notify('Local server address copied.'); });
 onButton('check-live', async () => { const result = await api('/api/live/check', {}); state.live = result; renderLive(result); notify(result.status === 'connected' ? `Server responded: ${result.players.length} player(s) connected.` : result.status === 'demo' ? 'Demo check only: no real server connection.' : result.error || 'Server connection is unavailable.', result.status === 'disconnected'); });
 onButton('send-live', async () => { const result = await api('/api/live/message', { message: $('live-message').value }); notify(result.message); });
 onButton('generate-rcon-password', async () => { $('rconPassword').value = Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join(''); setDirty(); notify('RCon password generated. Save and restart to apply it.'); });
 onButton('quit', async () => {
-  if (!await confirmAction('Quit Local Host?', 'The managed server will be terminated without an in-game save. Unsaved dashboard edits are discarded. A separately launched game is left running.', 'Quit & stop server')) return;
+  if (!await confirmAction('Quit ArmaHost?', 'The managed server will be terminated without an in-game save. Unsaved dashboard edits are discarded. A separately launched game is left running.', 'Quit & stop server')) return;
   await api('/api/quit', {}); shuttingDown = true; setDirty(false); $('offline-banner').hidden = false; $('connection').textContent = 'Stopped'; notify('Local Host is closing. This tab can be closed.');
 });
 onButton('diagnose-top', async () => {
@@ -557,7 +584,7 @@ async function refreshInvite() {
 }
 $('invite-password').addEventListener('change', () => { void refreshInvite(); });
 onButton('connection-refresh', refreshInvite);
-onButton('invite-copy', async () => { await navigator.clipboard.writeText($('invite-text').textContent); notify($('invite-password').checked ? 'Invite copied, including the join password.' : 'Invite copied. Send the join password separately.'); });
+onButton('invite-copy', async () => { await copyText($('invite-text').textContent); notify($('invite-password').checked ? 'Invite copied, including the join password.' : 'Invite copied. Send the join password separately.'); });
 for (const id of ['starlink', 'starlinkVpn']) $(id).addEventListener('change', renderNetworkDraft);
 onButton('detect-vpn', async () => {
   const result = await refreshHostingDetails();
@@ -572,7 +599,7 @@ onButton('copy-vpn', async () => {
   if (dirty) throw new Error('Save your changes first. Restart a running server to apply its new network settings.');
   const result = await refreshHostingDetails();
   if (!result.enabled || !result.assigned || !result.address) throw new Error('Enable network hosting and save its connection settings first.');
-  await navigator.clipboard.writeText(`Arma 3 session\nDirect Connect: ${result.address}\n${result.scope === 'vpn' ? 'Connect to the host through the same VPN first.' : result.scope === 'lan' ? 'LAN only: join from the same local network. For internet play, ask the host for its public IPv4.' : 'Internet: the host must forward its game ports through its router.'}\nUse matching mission mods. Ask the host for the join password separately.`);
+  await copyText(`Arma 3 session\nDirect Connect: ${result.address}\n${result.scope === 'vpn' ? 'Connect to the host through the same VPN first.' : result.scope === 'lan' ? 'LAN only: join from the same local network. For internet play, ask the host for its public IPv4.' : 'Internet: the host must forward its game ports through its router.'}\nUse matching mission mods. Ask the host for the join password separately.`);
   notify('Friend connection details copied. Password is not included.');
 });
 onButton('vpn-guide', async () => {

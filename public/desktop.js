@@ -1,8 +1,6 @@
 if (window.armaDesktop) {
   document.body.classList.add('desktop');
   document.title = 'ArmaHost Desktop';
-  document.querySelector('.brand > span:last-child').firstChild.textContent = 'ARMAHOST';
-  document.querySelector('.sidebar-bottom > small').textContent = 'DESKTOP EDITION · V1.7.0';
   document.querySelector('.form-footer > .muted').textContent = 'Settings are stored in your Windows user profile.';
   document.querySelector('#offline-banner span').textContent = 'The local manager is unavailable. Close and reopen ArmaHost.';
   for (const paragraph of document.querySelectorAll('#help-dialog p')) {
@@ -26,14 +24,16 @@ if (window.armaDesktop) {
       finally { button.disabled = false; }
     });
   }
-  const data = document.createElement('button'); data.className = 'text-button'; data.textContent = 'Open data folder ↗';
+  const data = document.createElement('button'); data.className = 'side-link'; data.innerHTML = '<span>▤</span> Data folder';
   data.addEventListener('click', () => { void window.armaDesktop.openData().catch(console.error); });
-  document.getElementById('help-button').after(data);
+  const about = document.createElement('button'); about.className = 'side-link'; about.innerHTML = '<span>i</span> About';
+  about.addEventListener('click', () => { void window.armaDesktop.about().catch(console.error); });
+  document.getElementById('help-button').after(data, about);
   // Automatic updates: the main process checks, downloads and verifies; this only shows state and asks to restart.
   const api = window.armaDesktop.updates;
-  const panel = document.createElement('details'); panel.className = 'update-panel';
-  panel.innerHTML = '<summary>Updates <span data-update-dot hidden>●</span></summary><p class="help-text" data-update-status>Checking…</p><div class="update-progress" data-update-progress hidden><i></i></div><button class="button subtle" data-update-check>Check now</button><button class="button primary" data-update-install hidden>Restart &amp; update</button><button class="text-button" data-update-skip hidden>Skip this version</button><label class="update-auto"><input type="checkbox" data-update-auto> Check automatically</label><button class="text-button" data-update-releases>All releases ↗</button><details class="update-advanced"><summary>Advanced</summary><input type="password" autocomplete="off" placeholder="GitHub token (private forks only)" aria-label="GitHub update token" data-update-token></details>';
-  data.after(panel);
+  const panel = document.createElement('div'); panel.className = 'update-panel';
+  panel.innerHTML = '<div class="update-head"><strong>Updates</strong><span class="update-dot" data-update-dot hidden></span></div><p class="update-status" data-update-status>Checking…</p><div class="update-progress" data-update-progress hidden><i></i></div><button class="button primary small" data-update-install hidden>Restart &amp; update</button><button class="text-button" data-update-skip hidden>Skip this version</button><div class="update-row"><button class="button subtle small" data-update-check>Check</button><label class="mini-switch" title="Check for updates automatically"><input type="checkbox" data-update-auto><span></span> Auto</label></div><details class="update-advanced"><summary>More</summary><button class="text-button" data-update-releases>All releases ↗</button><input type="password" autocomplete="off" placeholder="GitHub token (private forks only)" aria-label="GitHub update token" data-update-token></details>';
+  document.getElementById('side-updates').append(panel);
   const banner = document.createElement('div'); banner.id = 'update-banner'; banner.className = 'notice update-banner'; banner.hidden = true;
   banner.innerHTML = '<strong data-banner-title>Update ready.</strong><span>Restart ArmaHost to install it. Your server keeps running.</span><button class="button primary" data-banner-install>Restart &amp; update</button><button class="button subtle" data-banner-notes>What\'s new</button><button class="button subtle" data-banner-later>Later</button>';
   document.getElementById('main').prepend(banner);
@@ -47,14 +47,15 @@ if (window.armaDesktop) {
     const ready = s.status === 'ready';
     const percent = s.total ? Math.floor((s.received || 0) / s.total * 100) : 0;
     const text = {
-      idle: `Version ${s.version}.`, checking: 'Checking for updates…',
-      upToDate: `Version ${s.version} is up to date${s.checkedAt ? ` · checked ${time(s.checkedAt)}` : ''}.`,
+      idle: 'Not checked yet.', checking: 'Checking…',
+      upToDate: `Up to date${s.checkedAt ? ` · ${time(s.checkedAt)}` : ''}`,
       downloading: `Downloading ${s.available}… ${percent}%`,
       ready: `Version ${s.available} is downloaded and verified. Restart to install.`,
       skipped: `Version ${s.available} is available (skipped). Press Check now to get it anyway.`,
       error: `Couldn't update: ${s.error || 'unknown error'}`
     }[s.status] || '';
     q(panel, '[data-update-status]').textContent = text;
+    if (s.version) document.getElementById('version-chip').textContent = `v${s.version}`;
     q(panel, '[data-update-progress]').hidden = s.status !== 'downloading';
     q(panel, '[data-update-progress] i').style.width = `${percent}%`;
     q(panel, '[data-update-install]').hidden = !ready;

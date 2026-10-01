@@ -93,12 +93,20 @@ test('firewall helper: status parsing, admin prompt, declined prompt', async () 
   const s = { serverExe, port: 2302 };
   assert.equal((await new Firewall({ platform: 'linux' }).status(s)).supported, false);
   assert.equal((await new Firewall({ platform: 'win32', demo: true }).status(s)).supported, false);
-  const calls = []; let elevated = false; let ruleOk = false; let decline = false;
+  const calls = []; let elevated = false; let ruleOk = false; let decline = false; let elevatedFails = false; let silentElevated = false;
   const run = async (file, args, options) => {
     calls.push({ file, args, env: options.env });
     const command = args.join(' ');
     if (command.includes('IsInRole')) return { stdout: elevated ? 'True\r\n' : 'False\r\n' };
-    if (command.includes('Start-Process')) { if (decline) throw Object.assign(new Error('failed'), { stderr: 'The operation was canceled by the user.' }); ruleOk = true; return { stdout: '' }; }
+    if (command.includes('Start-Process')) {
+      if (decline) throw Object.assign(new Error('failed'), { stderr: 'The operation was canceled by the user.' });
+      // Play the elevated copy: it reports through the result file named in its script.
+      const script = Buffer.from(command.match(/'-EncodedCommand','([A-Za-z0-9+/=]+)'/)[1], 'base64').toString('utf16le');
+      const resultFile = script.match(/^\$ResultFile = '(.*)'$/m)[1].replaceAll("''", "'");
+      if (elevatedFails) { await writeFile(resultFile, 'FAIL The parameter is incorrect.'); return { stdout: '' }; }
+      if (!silentElevated) { ruleOk = true; await writeFile(resultFile, '\uFEFFOK\r\n'); }
+      return { stdout: '' };
+    }
     if (args.includes('-EncodedCommand')) { ruleOk = true; return { stdout: '' }; }
     return { stdout: JSON.stringify(ruleOk
       ? { exists: true, enabled: true, profile: 'Private', ports: '2302-2306', program: serverExe, others: [], networks: 'Private', blocks: [] }
@@ -118,6 +126,11 @@ test('firewall helper: status parsing, admin prompt, declined prompt', async () 
   assert.match(Buffer.from(encoded, 'base64').toString('utf16le'), /-Profile 'Public'/, 'rule targets the current network category');
   ruleOk = false; decline = true;
   await assert.rejects(fw.allow(s), /declined.*nothing was changed/);
+  decline = false; ruleOk = false; elevatedFails = true;
+  await assert.rejects(fw.allow(s), /Windows refused the rule: The parameter is incorrect/, 'the elevated copy\'s error is shown');
+  elevatedFails = false; silentElevated = true;
+  await assert.rejects(fw.allow(s), /did not report a result/, 'an elevated copy that never ran is not reported as success');
+  silentElevated = false;
   decline = false; elevated = true; calls.length = 0;
   await fw.allow(s);
   assert.ok(!calls.some(c => c.args.join(' ').includes('Start-Process')), 'already elevated: no prompt');
@@ -145,4 +158,27 @@ test('API: invite uses the running session, hides the password unless asked; con
     assert.equal((await post('/api/firewall/status')).body.supported, false, 'demo never touches the firewall');
     assert.equal((await post('/api/firewall/remove-blocks', {})).status, 400, 'needs explicit confirmation');
   } finally { await app.close(); }
+});
+
+test('admin Steam IDs are validated and written to server.cfg; loginusers.vdf is parsed', async () => {
+  const { parseLoginUsers } = await import('../src/discovery.mjs');
+  const s = validateSettings({ ...defaults(), adminSteamIds: ['76561198000000001', '76561198000000001', '76561198000000002'] });
+  assert.deepEqual(s.adminSteamIds, ['76561198000000001', '76561198000000002']);
+  assert.match(renderConfig(s), /admins\[\] = \{"76561198000000001", "76561198000000002"\};/);
+  assert.ok(!/admins\[\]/.test(renderConfig(validateSettings(defaults()))), 'no admins line when none are set');
+  for (const bad of [['123'], ['76561198000000001"};'], [76561198000000001], 'x', Array(11).fill('76561198000000001')]) assert.throws(() => validateSettings({ ...defaults(), adminSteamIds: bad }), /Steam64/);
+  const vdf = `"users"\n{\n\t"76561198000000005"\n\t{\n\t\t"AccountName"\t\t"old"\n\t\t"PersonaName"\t\t"Old Account"\n\t\t"MostRecent"\t\t"0"\n\t}\n\t"76561198000000009"\n\t{\n\t\t"AccountName"\t\t"gamer"\n\t\t"PersonaName"\t\t"Gamertroll101"\n\t\t"MostRecent"\t\t"1"\n\t}\n}\n`;
+  assert.deepEqual(parseLoginUsers(vdf)[0], { steamId: '76561198000000009', name: 'Gamertroll101', mostRecent: true });
+  assert.equal(parseLoginUsers(vdf).length, 2); assert.deepEqual(parseLoginUsers('garbage'), []);
+});
+
+test('a missing mission is flagged in diagnostics and the invite', async t => {
+  const { diagnostics } = await import('../src/discovery.mjs');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'arma-mission-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const s = validateSettings({ ...defaults(), port: 24900 + (process.pid % 50) * 10 });
+  const row = (await diagnostics(s, dir, false)).checks.find(c => c.name === 'Mission');
+  assert.equal(row.ok, false); assert.match(row.detail, /empty Role Assignment.*#login.*#missions/);
+  const home = validateSettings({ ...defaults(), audience: 'home', password: 'x', serverExe });
+  assert.match(inviteText(home, hostingInfo(home, LAN)), /still needs to pick a mission/);
+  assert.ok(!inviteText({ ...home, mission: 'Coop.Altis' }, hostingInfo(home, LAN)).includes('pick a mission'));
 });

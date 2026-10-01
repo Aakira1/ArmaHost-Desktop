@@ -151,6 +151,8 @@ export async function diagnostics(s, dir, demo, { running = false, processes = n
     const source = path.join(serverDir, 'BattlEye', dll);
     add('BattlEye server library', await isFile(source), (await isFile(source)) ? source : `Missing ${source}. Verify the Arma 3 Server files in Steam.`, demo);
   }
+  add('Mission', Boolean(s.mission), s.mission ? s.mission : 'No mission chosen. Players will see an empty Role Assignment screen until an admin picks one (#login, then #missions). Choose one under Missions.', true);
+  add('Admin Steam ID', s.adminSteamIds.length > 0, s.adminSteamIds.length ? `${s.adminSteamIds.length} admin(s) can type #login in game without the password.` : 'Optional: add your Steam ID in Setup so you can type #login in game without the admin password.', true);
   for (const m of s.mods.filter(m => m.enabled)) add(`Mod: ${path.basename(m.path)}`, await isDirectory(m.path), (await isDirectory(m.path)) ? `${m.path} (${m.scope})` : `Folder not found: ${m.path}. Reinstall the mod or remove it from the loadout.`);
   if (s.mods.some(m => m.enabled) && s.verifySignatures) add('Mod signing keys', false, 'Copy the trusted mods’ .bikey files into the server keys folder. This app does not install keys or resolve dependencies.', true);
   if (s.battleye) add('BattlEye client', false, 'Join launches the game through arma3battleye.exe. Only Join does this; Start never launches the game.', true);
@@ -164,4 +166,33 @@ export async function diagnostics(s, dir, demo, { running = false, processes = n
   if ((s.lan || s.starlink) && !(s.starlink && s.starlinkVpn)) add(s.starlink ? 'Starlink direct hosting' : 'Normal network hosting', false, `Game UDP ${s.port}-${s.port + 4}. Forward these ports to this PC for internet play and allow the server through Windows Firewall. Public IPv4 ${s.publicIp || 'not supplied'}; external access is unverified.`, true);
   if (s.rconEnabled) add('Live player monitoring', s.battleye, `BattlEye RCon uses localhost UDP ${s.rconPort}. Save and restart to apply settings; use Overview to check its response.`, true);
   return { checks, canStart: demo || (process.platform === 'win32' && serverFile && SERVER_EXECUTABLES.includes(serverName)) };
+}
+
+// Steam accounts signed in on this PC, read from Steam's own loginusers.vdf (local file, no network).
+export function parseLoginUsers(text) {
+  const users = [];
+  for (const match of String(text).matchAll(/"(7656119\d{10})"\s*\{([^{}]*)\}/g)) {
+    const field = name => new RegExp(`"${name}"\\s*"([^"\\r\\n]{0,64})"`, 'i').exec(match[2])?.[1] || '';
+    users.push({ steamId: match[1], name: field('PersonaName') || field('AccountName') || match[1], mostRecent: field('MostRecent') === '1' });
+  }
+  return users.sort((a, b) => Number(b.mostRecent) - Number(a.mostRecent)).slice(0, 10);
+}
+export async function steamAccounts() {
+  if (process.platform !== 'win32') return { accounts: [], note: 'Steam account detection is only available on Windows.' };
+  const roots = new Set();
+  for (const base of [process.env['ProgramFiles(x86)'], process.env.ProgramFiles]) if (base) roots.add(path.join(base, 'Steam'));
+  try {
+    const reg = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+    const { stdout } = await execute(reg, ['query', 'HKCU\\Software\\Valve\\Steam', '/v', 'SteamPath'], { windowsHide: true, timeout: 3000, maxBuffer: 16384 });
+    const found = stdout.match(/SteamPath\s+REG_SZ\s+([^\r\n]+)/i); if (found) roots.add(path.win32.normalize(found[1].trim()));
+  } catch { /* Standard locations only. */ }
+  for (const root of roots) {
+    try {
+      const file = path.join(root, 'config', 'loginusers.vdf');
+      if ((await stat(file)).size > 262144) continue;
+      const accounts = parseLoginUsers(await readFile(file, 'utf8'));
+      if (accounts.length) return { accounts };
+    } catch { /* Try the next location. */ }
+  }
+  return { accounts: [], note: 'No Steam account found on this PC. Enter your Steam64 ID (17 digits, from your Steam profile URL) instead.' };
 }

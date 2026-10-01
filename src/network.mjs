@@ -72,7 +72,7 @@ export async function detectPublicIp(fetcher = fetch) {
 export function inviteText(s, hosting, { includePassword = false, mods = [] } = {}) {
   if (!hosting.address) throw new Error(hosting.missing === 'publicIp' ? 'Enter or detect your public IPv4 in Setup first, then restart the server.' : 'No address to share yet. Choose who will play in Setup and restart the server.');
   const [host, port] = [hosting.address.slice(0, hosting.address.lastIndexOf(':')), hosting.address.slice(hosting.address.lastIndexOf(':') + 1)];
-  const lines = [`Join my Arma 3 server: ${s.serverName}`, '', `Address: ${host}`, `Port: ${port}`,
+  const lines = [`Join my Arma 3 server: ${s.serverName}`, '', `Address: ${host}`, `Port: ${port}`, ...(s.mission ? [] : ['(The host still needs to pick a mission. Until then the lobby is empty.)']),
     `Password: ${!s.password ? 'none' : includePassword ? s.password : 'I will send it separately'}`, ''];
   if (hosting.scope === 'vpn') lines.push('Connect to my VPN network first (the same one I use), then:');
   if (hosting.scope === 'lan') lines.push('You need to be on the same home network as me. Then:');

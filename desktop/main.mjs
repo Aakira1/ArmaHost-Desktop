@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -54,7 +54,7 @@ async function boot() {
   backend = await createApp({ root, dir, demo, port: 0, onQuit: finishQuit });
   window = new BrowserWindow({
     width: Math.max(1000, Math.min(Number(bounds.width) || 1320, 2400)), height: Math.max(700, Math.min(Number(bounds.height) || 880, 1600)),
-    minWidth: 900, minHeight: 640, show: false, backgroundColor: '#111711', title: 'ArmaHost Desktop', icon: path.join(root, 'build', 'icon.png'),
+    minWidth: 900, minHeight: 640, show: false, autoHideMenuBar: true, backgroundColor: '#111711', title: 'ArmaHost Desktop', icon: path.join(root, 'build', 'icon.png'),
     webPreferences: { preload: path.join(root, 'desktop', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
   const trusted = event => {
@@ -69,6 +69,9 @@ async function boot() {
     return result.canceled ? null : result.filePaths[0];
   });
   ipcMain.handle('desktop:data', async event => { trusted(event); const error = await shell.openPath(dir); if (error) throw new Error(error); });
+  // The page itself gets no browser permissions (clipboard included); copying goes through here instead.
+  ipcMain.handle('desktop:copy', async (event, text) => { trusted(event); if (typeof text !== 'string' || text.length > 20000) throw new Error('Nothing to copy.'); clipboard.writeText(text); return true; });
+  ipcMain.handle('desktop:about', async event => { trusted(event); await showAbout(); });
   ipcMain.handle('desktop:vpn-guide', async event => { trusted(event); await shell.openExternal('https://tailscale.com/docs/use-cases/personal-or-at-home-use/share-private-game-server'); });
   // Background updates: check on a schedule, download + verify, then offer a one-click restart.
   const portableFile = process.env.PORTABLE_EXECUTABLE_FILE || '';
@@ -110,11 +113,13 @@ async function boot() {
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   window.on('close', event => { if (!quitting) { event.preventDefault(); void requestClose(); } });
   window.on('resize', () => { if (!window.isMaximized() && !window.isMinimized()) { const { width, height } = window.getBounds(); void writeFile(boundsFile, JSON.stringify({ width, height })).catch(() => {}); } });
+  // The menu stays available (Alt shows it, and its shortcuts work) but the bar is hidden.
+  window.setMenuBarVisibility(false);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'File', submenu: [{ label: 'Open data folder', click: () => { void shell.openPath(dir); } }, { type: 'separator' }, { label: 'Quit', accelerator: 'Alt+F4', click: () => { void requestClose(); } }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.7.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
+    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void showAbout(); } }] }
   ]));
   window.once('ready-to-show', () => window.show());
   await window.loadURL(backend.url + '/#token=' + backend.token);
@@ -140,6 +145,12 @@ async function boot() {
     result.testMessage = await window.webContents.executeJavaScript("document.getElementById('toast').textContent.includes('no in-game message')");
     if (!result.testMessage) throw new Error('Test message UI did not respond.');
     result.updater = await window.webContents.executeJavaScript("!!document.querySelector('[data-update-check]') && typeof window.armaDesktop.updates.install === 'function' && !!document.getElementById('update-banner')");
+    result.menuHidden = !window.isMenuBarVisible();
+    if (!result.menuHidden) throw new Error('Menu bar is visible.');
+    const copied = await window.webContents.executeJavaScript("window.armaDesktop.copyText('armahost-smoke-copy')");
+    await new Promise(resolve => setTimeout(resolve, 200));
+    result.copyBridge = copied === true && (clipboard.readText() === 'armahost-smoke-copy' || process.platform === 'linux');
+    if (!result.copyBridge) throw new Error('Copy bridge did not write to the clipboard.');
     await backend.manager.stop();
     result.demoStopped = !backend.manager.child;
     await window.webContents.executeJavaScript("document.getElementById('role-join').click(); document.getElementById('join-remote').click();");
@@ -172,4 +183,7 @@ async function boot() {
     await backend.store.saveSettings(original.settings, backend.store.snapshot().revision);
     await finishQuit();
   }
+}
+function showAbout() {
+  return dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: `ArmaHost Desktop ${app.getVersion()}`, detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' });
 }
