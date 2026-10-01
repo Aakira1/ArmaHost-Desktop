@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.8.1
+# ArmaHost Desktop 1.8.2
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.8.2:** Fixed the co-op starter being refused with "dependent on downloadable content that has been deleted (a3_characters_f)".
 
 **1.8.1:** Join passwords are optional: leave the field empty for an open server.
 

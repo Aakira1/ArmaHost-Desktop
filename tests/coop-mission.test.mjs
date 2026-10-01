@@ -42,7 +42,8 @@ test('co-op starter: playable BLUFOR slots, valid structure for every map and si
     assert.ok(balanced(sqm), `${world}/${slots} sqm balanced`); assert.ok(itemCountsMatch(sqm), `${world}/${slots} item counts`);
     assert.equal((sqm.match(/isPlayable=1;/g) || []).length, slots);
     assert.equal((sqm.match(/dataType="Group";/g) || []).length, Math.ceil(slots / 8));
-    assert.ok(!/side="(?!West)/.test(sqm)); assert.match(sqm, /^version=54;/); assert.match(sqm, /"A3_Characters_F"/);
+    assert.ok(!/side="(?!West)/.test(sqm)); assert.match(sqm, /^version=54;/);
+    assert.match(sqm, /addons\[\]=\n\{\n\};/, 'no declared add-ons'); assert.ok(!/AddonsMetaData|A3_Characters_F/i.test(sqm));
     const ids = [...sqm.matchAll(/^\t*id=(\d+);$/gm)].map(x => Number(x[1]));
     assert.equal(new Set(ids).size, ids.length, 'unique ids'); assert.match(sqm, new RegExp(`nextID=${ids.length};`));
     for (const name of ['description.ext', 'initServer.sqf', 'initPlayerLocal.sqf']) assert.ok(balanced(m.files[name]), `${world}/${slots} ${name}`);
