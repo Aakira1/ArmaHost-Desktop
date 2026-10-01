@@ -25,7 +25,7 @@ export class LiveMap {
     const [, kind, seq] = parts;
     if (kind === 'F') {
       const size = num(parts[5], 1e6);
-      this.pending = size && size > 0 ? { seq, time: num(parts[3]) ?? 0, world: text(parts[4], 64).replace(/[^A-Za-z0-9_]/g, '') || 'Unknown', worldSize: size, interval: Math.max(1, Math.min(60, num(parts[6], 60) ?? 3)), units: [], vehicles: [], markers: [] } : null;
+      this.pending = size && size > 0 ? { seq, time: num(parts[3]) ?? 0, world: text(parts[4], 64).replace(/[^A-Za-z0-9_]/g, '') || 'Unknown', worldSize: size, interval: Math.max(1, Math.min(60, num(parts[6], 60) ?? 3)), pictureMap: /^\\?[A-Za-z0-9_][A-Za-z0-9_\\. -]{0,200}\.paa$/i.test(parts[7] || '') && !parts[7].includes('..') ? parts[7] : '', units: [], vehicles: [], markers: [] } : null;
     } else if (PARSERS[kind]) {
       const frame = this.pending; if (!frame || frame.seq !== seq) return true;
       const list = frame[KEYS[kind]];

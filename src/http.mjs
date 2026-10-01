@@ -75,11 +75,22 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         if (route === 'GET /api/state') return send(200, state());
         if (route === 'GET /api/network') return send(200, hostingInfo(manager.child ? manager.activeSettings : store.snapshot().settings));
         if (route === 'GET /api/live') return send(200, monitor.snapshot());
-        if (route === 'GET /api/map') return send(200, manager.mapSnapshot());
+        if (route === 'GET /api/map') {
+          const snap = manager.mapSnapshot();
+          const world = snap.frame?.world;
+          if (world && world !== 'Unknown') {
+            const saved = store.snapshot().settings, active = manager.activeSettings || saved;
+            // Where the terrain's files can be: the server and game installs plus any enabled mod folders.
+            const roots = [active.serverExe && path.dirname(active.serverExe), saved.gameExe && path.dirname(saved.gameExe), ...[...active.mods, ...saved.mods].filter(m => m.enabled).map(m => m.path)];
+            if (snap.frame.pictureMap && !snap.demo) void backgrounds.ensureAuto(world, snap.frame.pictureMap, roots);
+            snap.background = await backgrounds.status(world);
+          }
+          return send(200, snap);
+        }
         if (route === 'GET /api/map/background') {
           const image = await backgrounds.get(url.searchParams.get('world'));
           if (!image) { res.writeHead(204); res.end(); return; } // no image saved: the map shows the grid only
-          res.writeHead(200, { 'Content-Type': image.type, 'Cache-Control': 'no-store' }); res.end(image.data); return;
+          res.writeHead(200, { 'Content-Type': image.type, 'Cache-Control': 'no-store', 'X-Map-Source': image.source }); res.end(image.data); return;
         }
         if (route === 'GET /api/logs') {
           const after = Number(url.searchParams.get('after') || 0);

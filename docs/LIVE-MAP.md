@@ -16,9 +16,17 @@ The **Live map** page shows players, AI, vehicles and mission markers from your 
 - Busy missions add tens of KB per minute to the RPT.
 
 ## Map images
-Bohemia's terrain artwork can't be bundled, so the map defaults to a grid.
+ArmaHost shows the **real terrain map automatically**, with nothing to download:
 
-To add a picture, open a mission on that terrain, then press **Set map image…** and choose a square, top-down PNG or JPEG of the **whole** terrain (≤ 20 MB). The image is stretched to the terrain's edges and saved per terrain in `data/maps`.
+1. The server script reports the loaded terrain (`worldName`) and the path of its built-in overview map, the terrain's `pictureMap` (for example `A3\map_Altis\data\pictureMap_ca.paa`).
+2. ArmaHost finds that file in the `.pbo` archives of **your own installation**: the dedicated server folder, the Arma 3 game folder (including DLC folders such as Expansion and Enoch), and any enabled mod folders. It only reads the archive headers to locate it.
+3. It converts the texture (DXT1/DXT5 `.paa`, up to 2048 × 2048) to PNG once and caches it in `data/maps/auto`, then draws it under the grid at the terrain's exact size.
+
+Modded terrains work too, provided the mod is on this PC and enabled in your Mods list.
+
+If a terrain has no picture map, or uses a texture format ArmaHost can't read, the page says why and shows the grid. You can always choose your own image with **Set map image…** (PNG or JPEG, square, whole terrain, up to 20 MB). Your image takes priority, and **Remove my image** goes back to the terrain map.
+
+No Bohemia artwork ships with ArmaHost; images come from the game files you already own.
 
 ## Reading the map
 - **Colours:** BLUFOR blue, OPFOR red, Independent green, Civilian purple.
