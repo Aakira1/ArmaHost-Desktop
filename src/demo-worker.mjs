@@ -21,7 +21,7 @@ function frame() {
 }
 // Synthetic terrain export in the same AHTOPO format the server addon writes (demo only).
 function topo() {
-  const id = String(Date.now()), out = line => console.log(`AHTOPO|${id}|${line}`);
+  const id = String(Date.now()), lines = [], out = line => lines.push(`AHTOPO|${id}|${line}`);
   const n = 160, cell = size / n, fn = 80, fcell = size / fn;
   const island = (x, y) => { const dx = (x - size / 2) / (size / 2), dy = (y - size / 2) / (size / 2); return 120 * (0.62 - Math.hypot(dx * 1.1, dy * 1.35) + 0.18 * Math.sin(x / 700) * Math.cos(y / 900) + 0.1 * Math.sin((x + y) / 420)); };
   out(`B|Demo|${size}|${n}`);
@@ -39,6 +39,9 @@ function topo() {
   for (let b = 0; b < buildings.length; b += 40) out(`S|${buildings.slice(b, b + 40).join('^')}`);
   out(`L|${towns.map(t => t.join('~')).join('^')}`);
   out(`E|${n}|${fn}|${roads.length}|${buildings.length}|${towns.length}`);
+  // Write in small batches so a slow reader never blocks this process (pipe writes are synchronous on Windows).
+  const flush = () => { for (const line of lines.splice(0, 20)) console.log(line); if (lines.length) setTimeout(flush, 5); };
+  flush();
 }
 frame();
 setTimeout(topo, 500);

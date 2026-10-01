@@ -85,17 +85,20 @@ test('contours trace the expected crossings, levels scale with terrain size, hei
 test('demo mode builds and serves the topographic map end-to-end', async t => {
   const dir = await temp(t);
   const app = await createApp({ root, dir, demo: true, port: 0 });
-  t.after(() => app.close());
-  const headers = { 'X-Arma-Token': app.token, 'Content-Type': 'application/json' };
-  await fetch(app.url + '/api/server/start', { method: 'POST', headers, body: '{}' });
-  let snap;
-  for (let i = 0; i < 60; i++) { snap = await (await fetch(app.url + '/api/map', { headers })).json(); if (snap.topo?.status === 'ready') break; await new Promise(r => setTimeout(r, 100)); }
-  assert.equal(snap.topo.status, 'ready');
-  const response = await fetch(app.url + '/api/map/topo?world=Demo', { headers });
-  assert.equal(response.status, 200);
-  const data = await response.json();
-  assert.equal(data.world, 'Demo'); assert.equal(data.heights.length, data.n * data.n); assert.ok(data.roads.length > 50 && data.buildings.length > 100);
-  assert.equal((await fetch(app.url + '/api/map/topo?world=Nowhere', { headers })).status, 204);
-  assert.equal((await fetch(app.url + '/api/map/topo?world=Demo')).status, 401);
-  assert.ok(!app.logs.since(0).entries.some(e => e.message.includes('AHTOPO')), 'export lines stay out of the log');
+  // Close the app (and its demo process) before the temp folder is removed: Windows can't delete a
+  // running process's working directory.
+  try {
+    const headers = { 'X-Arma-Token': app.token, 'Content-Type': 'application/json' };
+    await fetch(app.url + '/api/server/start', { method: 'POST', headers, body: '{}' });
+    let snap;
+    for (let i = 0; i < 60; i++) { snap = await (await fetch(app.url + '/api/map', { headers })).json(); if (snap.topo?.status === 'ready') break; await new Promise(r => setTimeout(r, 100)); }
+    assert.equal(snap.topo.status, 'ready');
+    const response = await fetch(app.url + '/api/map/topo?world=Demo', { headers });
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.world, 'Demo'); assert.equal(data.heights.length, data.n * data.n); assert.ok(data.roads.length > 50 && data.buildings.length > 100);
+    assert.equal((await fetch(app.url + '/api/map/topo?world=Nowhere', { headers })).status, 204);
+    assert.equal((await fetch(app.url + '/api/map/topo?world=Demo')).status, 401);
+    assert.ok(!app.logs.since(0).entries.some(e => e.message.includes('AHTOPO')), 'export lines stay out of the log');
+  } finally { await app.close(); }
 });
