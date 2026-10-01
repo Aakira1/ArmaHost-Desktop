@@ -1,4 +1,4 @@
-# ArmaHost Desktop 1.7.0
+# ArmaHost Desktop 1.7.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
 

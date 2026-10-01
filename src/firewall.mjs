@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import { AppError } from './config.mjs';
 const execute = promisify(execFile);
 
@@ -38,17 +40,25 @@ export function allowScript(s, profiles) {
 try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch { }
 try {
   New-NetFirewallRule -DisplayName ${literal(ruleName(s.port))} -Group '${RULE_GROUP}' -Description 'Added by ArmaHost Desktop for the Arma 3 dedicated server. Remove it from ArmaHost Setup.' -Direction Inbound -Action Allow -Protocol UDP -LocalPort '${s.port}-${s.port + 4}' -Program ${literal(s.serverExe)} -Profile '${profile}' -ErrorAction Stop | Out-Null
-  exit 0
-} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
+  AhOk
+} catch { AhFail $_.Exception.Message }`;
 }
 export function removeScript() {
-  return `try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
+  return `try { Get-NetFirewallRule -Group '${RULE_GROUP}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop; AhOk } catch { AhFail $_.Exception.Message }`;
 }
 export function removeBlocksScript(names) {
   if (!names.length || names.length > 40 || !names.every(n => typeof n === 'string' && n.length > 0 && n.length < 300)) throw new AppError('No block rules to remove.');
-  return `try { Get-NetFirewallRule -Name ${names.map(literal).join(',')} -ErrorAction Stop | Where-Object { [string]$_.Action -eq 'Block' } | Remove-NetFirewallRule -ErrorAction Stop; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 3 }`;
+  return `try { Get-NetFirewallRule -Name ${names.map(literal).join(',')} -ErrorAction Stop | Where-Object { [string]$_.Action -eq 'Block' } | Remove-NetFirewallRule -ErrorAction Stop; AhOk } catch { AhFail $_.Exception.Message }`;
 }
 const encode = script => Buffer.from(script, 'utf16le').toString('base64');
+// Every change script reports through AhOk / AhFail. The elevated copy started through the Windows admin
+// prompt can't hand its error output back, so it also writes the outcome to a result file we read.
+export function withResult(script, resultFile = '') {
+  return `$ResultFile = ${literal(resultFile)}
+function AhOk { if ($ResultFile) { Set-Content -LiteralPath $ResultFile -Value 'OK' -Encoding UTF8 }; exit 0 }
+function AhFail($message) { [Console]::Error.WriteLine($message); if ($ResultFile) { Set-Content -LiteralPath $ResultFile -Value ('FAIL ' + $message) -Encoding UTF8 }; exit 3 }
+${script}`;
+}
 
 export class Firewall {
   constructor({ platform = process.platform, run = execute, demo = false } = {}) { this.platform = platform; this.run = run; this.demo = demo; }
@@ -65,17 +75,22 @@ export class Firewall {
   // Runs a change script with administrator rights: directly when ArmaHost already has them,
   // otherwise through the Windows admin (UAC) prompt. The script is passed encoded, never via a shell.
   async runAsAdmin(script) {
-    const encoded = encode(script);
+    let folder = null;
     try {
-      if (await this.elevated()) await this.powershell(['-EncodedCommand', encoded]);
-      else await this.powershell(['-Command', `$p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encoded}'; exit $p.ExitCode`]);
+      if (await this.elevated()) { await this.powershell(['-EncodedCommand', encode(withResult(script))]); return; }
+      folder = await mkdtemp(path.join(os.tmpdir(), 'armahost-fw-'));
+      const resultFile = path.join(folder, 'result.txt');
+      await this.powershell(['-Command', `$p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encode(withResult(script, resultFile))}'; exit $p.ExitCode`]);
+      const result = (await readFile(resultFile, 'utf8').catch(() => '')).replace(/^\uFEFF/, '').trim();
+      if (result === 'OK') return;
+      throw Object.assign(new Error('elevated step failed'), { code: 3, stderr: result ? result.replace(/^FAIL\s*/, '') : 'the admin step did not report a result' });
     } catch (error) {
       const text = `${error.stderr || ''} ${error.message || ''}`;
       if (/cancel/i.test(text)) throw new AppError('The Windows admin prompt was declined, so nothing was changed. You can add the rule yourself with the command shown below.', 409);
       // PowerShell may wrap stderr in CLIXML progress records; keep only the readable message.
       const reason = String(error.stderr || '').replace(/#<\s*CLIXML/g, '').replace(/<Objs[\s\S]*$/, '').replace(/\s+/g, ' ').trim().slice(0, 300);
       throw new AppError(`Windows Firewall was not changed (${error.code === 3 ? 'Windows refused the rule' : 'the change failed'}${reason ? `: ${reason}` : ''}). You can add the rule yourself with the command shown below.`, 500);
-    }
+    } finally { if (folder) await rm(folder, { recursive: true, force: true }).catch(() => {}); }
   }
   async status(input) {
     if (!this.supported()) return { supported: false, message: this.demo ? 'Demo mode: Windows Firewall is not checked.' : 'Windows Firewall checks are only available on Windows.' };

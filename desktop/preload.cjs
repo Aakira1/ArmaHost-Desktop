@@ -3,6 +3,8 @@ contextBridge.exposeInMainWorld('armaDesktop', Object.freeze({
   pick: kind => ipcRenderer.invoke('desktop:pick', kind),
   openData: () => ipcRenderer.invoke('desktop:data'),
   openVpnGuide: () => ipcRenderer.invoke('desktop:vpn-guide'),
+  copyText: text => ipcRenderer.invoke('desktop:copy', String(text)),
+  about: () => ipcRenderer.invoke('desktop:about'),
   updates: Object.freeze({
     state: () => ipcRenderer.invoke('update:get-state'),
     checkNow: token => ipcRenderer.invoke('update:check-now', token),

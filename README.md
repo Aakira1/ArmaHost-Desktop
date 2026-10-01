@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.7.0
+# ArmaHost Desktop 1.7.1
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.7.1:** Copy buttons work in the desktop app, the menu bar is hidden, a new logo and sidebar, admin Steam ID with no password, a warning before starting without a mission, and the firewall helper now reports Windows' real error.
 
 **1.7.0:** **Who will play?** setup (just me / home network / friends elsewhere), **Invite a friend** with an evidence-only connection checklist, and a **Windows Firewall helper**. The launcher is now confirmed to have started (Steam is the fallback).
 
