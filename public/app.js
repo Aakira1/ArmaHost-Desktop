@@ -242,17 +242,54 @@ onButton('restart-server', async () => {
 onButton('join-game', async () => {
   if (dirty) await save(true);
   let whenReady = false;
-  if (!state.demo && state.status.pid && !state.status.ready) {
+  if (!state.demo && state.status.pid && !state.status.ready && $('joinMethod').value !== 'launcher') {
     // Launching while the server is still loading makes both load at once and the game sit at the logo.
     whenReady = await confirmAction('The server is still loading', 'Wait for the server to come online and launch the game automatically? This avoids the game and server loading at the same time. While waiting you can still press Launch now to start the game immediately.', 'Join when ready');
     if (!whenReady) return;
   }
-  const result = await api('/api/game/join', { whenReady });
-  notify(await withCopiedAddress(result)); applyState(await api('/api/state'));
+  await launch(() => api('/api/game/join', { whenReady })); applyState(await api('/api/state'));
 });
-onButton('join-now', async () => { await api('/api/game/join/cancel', {}); const result = await api('/api/game/join', {}); notify(await withCopiedAddress(result)); applyState(await api('/api/state')); });
+onButton('join-now', async () => { await api('/api/game/join/cancel', {}); await launch(() => api('/api/game/join', {})); applyState(await api('/api/state')); });
 onButton('join-cancel', async () => { applyState(await api('/api/game/join/cancel', {})); notify('Automatic join cancelled.'); });
-onButton('join-remote', async () => { if (dirty) await save(true); const result = await api('/api/game/join-remote', {}); notify(await withCopiedAddress(result)); });
+onButton('join-remote', async () => { if (dirty) await save(true); await launch(() => api('/api/game/join-remote', {})); });
+for (const id of ['open-launcher', 'open-launcher-join']) onButton(id, async () => { if (dirty) await save(true); await launch(() => api('/api/game/launcher', {})); });
+// Runs a game/launcher request. If Arma is already running, shows exactly which processes are open
+// (the dedicated server and the game together are normal; two games are not) and offers to close
+// the game-side ones, then repeats the request.
+async function launch(request) {
+  const result = await request();
+  if (result.running?.length && (!result.launcher || result.alreadyOpen)) {
+    if (result.alreadyOpen) await withCopiedAddress(result);
+    if (await showRunning(result)) {
+      const closed = await api('/api/game/close', { pids: result.running.filter(p => p.closable).map(p => p.pid) });
+      if (closed.results.some(r => !r.ok)) { notify(closed.message, true); return; }
+      const again = await request();
+      if (again.running?.length && !again.launcher) { notify(again.message, true); return; }
+      notify(`${closed.message} ${await withCopiedAddress(again)}`);
+    }
+    return;
+  }
+  notify(await withCopiedAddress(result));
+}
+function showRunning(result) {
+  const dialog = $('running-dialog'); dialog.returnValue = '';
+  $('running-title').textContent = result.alreadyOpen ? 'The Arma 3 Launcher is already open' : 'Arma 3 is already running';
+  $('running-message').textContent = result.alreadyOpen
+    ? 'Switch to it on the taskbar. If you can’t see it, close it here and a fresh one opens.'
+    : 'A copy of the game that is stuck (for example at the Arma logo) stops a new one from loading. Close it here and the Arma 3 Launcher opens.';
+  $('running-list').replaceChildren(...result.running.map(p => {
+    const item = document.createElement('li'); item.className = p.closable ? '' : 'keep';
+    const name = document.createElement('code'); name.textContent = `${p.name} · PID ${p.pid}`;
+    const role = document.createElement('span'); role.className = 'role'; role.textContent = p.closable ? p.role : `${p.role} · not closed`;
+    item.append(name, role); return item;
+  }));
+  const server = result.running.some(p => !p.closable);
+  $('running-note').textContent = server ? 'Your dedicated server shows as a separate Arma 3 process in Task Manager. That is expected and it is not closed.' : '';
+  $('running-close').textContent = result.alreadyOpen ? 'Close and reopen the launcher' : 'Close Arma 3 and open the launcher';
+  return new Promise(resolve => { dialog.addEventListener('close', () => resolve(dialog.returnValue === 'yes'), { once: true }); dialog.showModal(); });
+}
+$('running-cancel').addEventListener('click', () => $('running-dialog').close('no'));
+$('running-close').addEventListener('click', () => $('running-dialog').close('yes'));
 // Launcher joins: put host:port on the clipboard for the launcher's Direct Connect box.
 async function withCopiedAddress(result) {
   if (!result.connect) return result.message;

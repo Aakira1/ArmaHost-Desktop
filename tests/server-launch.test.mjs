@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaults, validateSettings, serverArgs, clientArgs, assertServerExecutable, renderConfig } from '../src/config.mjs';
 import { ProcessManager } from '../src/process-manager.mjs';
+import { findLauncher, endGameProcesses } from '../src/game-launch.mjs';
 import { LogBook } from '../src/logs.mjs';
 
 let portBase = 23100 + (process.pid % 200) * 10;
@@ -15,7 +16,7 @@ async function fixture(fn, { deps = {}, settings = {} } = {}) {
   await mkdir(serverDir); await mkdir(gameDir);
   const serverExe = path.join(serverDir, 'arma3server_x64.exe'); const gameExe = path.join(gameDir, 'arma3_x64.exe');
   for (const f of [serverExe, gameExe, path.join(gameDir, 'arma3battleye.exe')]) await writeFile(f, '');
-  const spawns = []; const gameCalls = []; const children = []; const opened = [];
+  const spawns = []; const gameCalls = []; const children = []; const opened = []; const killed = [];
   const fake = { exit: null, spawnError: null };
   const spawn = (exe, args, options) => {
     const child = new EventEmitter(); child.pid = 4000 + spawns.length; child.unref = () => {}; child.killed = false;
@@ -30,11 +31,13 @@ async function fixture(fn, { deps = {}, settings = {} } = {}) {
   };
   const logs = new LogBook(dir);
   const manager = new ProcessManager({ dir, logs, deps: {
-    spawn, platform: 'win32', startupGraceMs: 60, openUrl: url => opened.push(url),
+    spawn, platform: 'win32', startupGraceMs: 60, openUrl: url => opened.push(url), closeWaitMs: 300,
+    findLauncher: exe => findLauncher(exe, async () => ({ games: [] })),
+    endGameProcesses: (pids, options) => endGameProcesses(pids, { ...options, kill: async pid => { killed.push(pid); } }),
     armaProcesses: async () => ({ games: [], servers: [] }), ownsServer: async () => true,
     gameLaunch: (s, c) => { gameCalls.push(s); return { exe: path.join(gameDir, 'arma3battleye.exe'), args: ['2', '1', '0'] }; }, ...deps } });
   const s = validateSettings({ ...defaults(), serverExe, gameExe, port: (portBase += 10), joinMethod: 'direct', ...settings });
-  try { await fn({ manager, s, spawns, gameCalls, children, fake, dir, serverExe, gameExe, logs, opened }); }
+  try { await fn({ manager, s, spawns, gameCalls, children, fake, dir, serverExe, gameExe, gameDir, logs, opened, killed }); }
   finally { await manager.close().catch(() => {}); await rm(dir, { recursive: true, force: true }); }
 }
 
@@ -347,11 +350,11 @@ test('a waiting Join can be cancelled, is cancelled by Stop, and times out with 
   await assert.rejects(manager.join(s, { whenReady: true }).then(() => manager.join(s, { whenReady: true })), /already waiting/i);
 }));
 
-test('Join through the Arma 3 Launcher opens Steam\'s launcher and starts no game process', () => fixture(async ({ manager, s, spawns, gameCalls, opened, dir }) => {
+test('Launcher join falls back to Steam when arma3launcher.exe is not found and starts no game process', () => fixture(async ({ manager, s, spawns, gameCalls, opened, dir }) => {
   const mod = path.join(dir, '@CBA_A3'); await mkdir(mod);
   await manager.start({ ...s, joinMethod: 'launcher', password: 'pw', mods: [{ path: mod, enabled: true, scope: 'shared' }] });
   const result = await manager.join({ ...s, joinMethod: 'launcher', gameExe: '' });
-  assert.equal(result.launcher, true);
+  assert.equal(result.launcher, true); assert.equal(result.viaSteam, true); assert.match(result.message, /Couldn't find arma3launcher\.exe/);
   assert.deepEqual(opened, ['steam://run/107410']);
   assert.equal(spawns.length, 1, 'only the dedicated server was started'); assert.equal(gameCalls.length, 0);
   assert.deepEqual(result.connect, { host: '127.0.0.1', port: s.port, hasPassword: true });
@@ -359,16 +362,91 @@ test('Join through the Arma 3 Launcher opens Steam\'s launcher and starts no gam
   assert.ok(!JSON.stringify(result).includes('"pw"'), 'the password itself is not returned');
 }));
 
-test('Launcher join refuses while Arma 3 is already running, and joining a friend uses their address', () => fixture(async ({ manager, s, opened }) => {
+test('Launcher join lists running Arma processes instead of opening a second copy; joining a friend uses their address', () => fixture(async ({ manager, s, opened, spawns }) => {
   await manager.start({ ...s, joinMethod: 'launcher' });
-  manager.deps.armaProcesses = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 5 }], servers: [] });
-  await assert.rejects(manager.join({ ...s, joinMethod: 'launcher' }), /already running.*Task Manager/);
-  assert.equal(opened.length, 0);
+  const server = manager.status().pid;
+  manager.deps.armaProcesses = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 5 }], battleye: [], launchers: [], servers: [{ name: 'arma3server_x64.exe', pid: server }] });
+  const blocked = await manager.join({ ...s, joinMethod: 'launcher' });
+  assert.equal(blocked.launcher, false); assert.match(blocked.message, /already running: arma3_x64\.exe \(PID 5\).*stuck/);
+  assert.deepEqual(blocked.running, [
+    { name: 'arma3_x64.exe', pid: 5, role: 'Game', closable: true },
+    { name: 'arma3server_x64.exe', pid: server, role: 'Dedicated server (started by ArmaHost)', closable: false }]);
+  assert.equal(opened.length, 0); assert.equal(spawns.length, 1, 'nothing but the server was started');
   manager.deps.armaProcesses = async () => ({ games: [], servers: [] });
   const remote = await manager.joinRemote({ ...defaults(), joinMethod: 'launcher', remoteHost: 'friend.example.com', remotePort: 2402 });
   assert.deepEqual(remote.connect, { host: 'friend.example.com', port: 2402, hasPassword: false });
   assert.deepEqual(opened, ['steam://run/107410']);
 }));
+
+test('Open Arma 3 Launcher starts arma3launcher.exe from the game folder without a server, Steam or arguments', () => fixture(async ({ manager, s, spawns, opened, gameDir, serverExe, gameExe, logs }) => {
+  const launcher = path.join(gameDir, 'arma3launcher.exe'); await writeFile(launcher, '');
+  const result = await manager.openLauncherOnly({ ...s, joinMethod: 'launcher' });
+  assert.equal(result.launcher, true); assert.equal(result.viaSteam, false); assert.equal(result.connect, null);
+  assert.match(result.message, /^Opening the Arma 3 Launcher\.$/);
+  assert.equal(spawns.length, 1); assert.equal(spawns[0].exe, launcher); assert.deepEqual(spawns[0].args, []);
+  assert.equal(spawns[0].options.shell, false); assert.equal(spawns[0].options.detached, true); assert.equal(spawns[0].options.cwd, gameDir);
+  assert.ok(!spawns.some(c => c.exe === serverExe || c.exe === gameExe)); assert.equal(opened.length, 0);
+  assert.ok(logs.since(0).entries.some(e => /Opened Arma 3 Launcher: .*arma3launcher\.exe \(PID 4000\)/.test(e.message)));
+  assert.equal(manager.status().state, 'stopped', 'opening the launcher never starts the server');
+  await assert.rejects(manager.openLauncherOnly(s), /just opened/);
+}));
+
+test('with the server running, Open Arma 3 Launcher includes its address; launcher Join opens at once while the server loads', () => fixture(async ({ manager, s, spawns, gameDir, serverExe }) => {
+  const launcher = path.join(gameDir, 'arma3launcher.exe'); await writeFile(launcher, '');
+  await manager.start(s); // started with joinMethod "direct"
+  assert.equal(manager.status().ready, null, 'server still loading');
+  const result = await manager.join({ ...s, joinMethod: 'launcher' }, { whenReady: true });
+  assert.equal(result.waiting, undefined); assert.equal(manager.status().pendingJoin, null);
+  assert.equal(result.launcher, true, 'the saved join method wins over the one the server started with');
+  assert.deepEqual(result.connect, { host: '127.0.0.1', port: s.port, hasPassword: false });
+  assert.equal(spawns.length, 2); assert.equal(spawns[0].exe, serverExe); assert.equal(spawns[1].exe, launcher);
+  manager.lastJoin = 0;
+  manager.deps.armaProcesses = async () => ({ games: [], battleye: [], launchers: [{ name: 'arma3launcher.exe', pid: 77 }], servers: [] });
+  const open = await manager.openLauncherOnly({ ...s, joinMethod: 'launcher' });
+  assert.equal(open.alreadyOpen, true); assert.match(open.message, /already open \(PID 77\).*Direct Connect: 127\.0\.0\.1 port/);
+  assert.equal(spawns.length, 2, 'no second launcher');
+}));
+
+test('closing Arma ends only game-side processes, never a dedicated server', () => fixture(async ({ manager, s, killed }) => {
+  await manager.start(s);
+  const own = manager.status().pid;
+  const processes = { games: [{ name: 'arma3_x64.exe', pid: 5 }, { name: 'arma3_x64.exe', pid: 6 }], battleye: [{ name: 'Arma3BattlEye.exe', pid: 8 }], launchers: [{ name: 'arma3launcher.exe', pid: 7 }],
+    servers: [{ name: 'arma3server_x64.exe', pid: own }, { name: 'arma3server_x64.exe', pid: 9 }] };
+  manager.deps.armaProcesses = async () => ({ ...processes, games: processes.games.filter(p => !killed.includes(p.pid)) });
+  await assert.rejects(manager.closeGame([5, own]), /dedicated server/);
+  await assert.rejects(manager.closeGame([]), /Choose/); await assert.rejects(manager.closeGame(['5']), /Choose/);
+  const result = await manager.closeGame([5, 6, 7, 8, 9]);
+  assert.deepEqual(killed, [5, 6, 7, 8]);
+  assert.equal(result.results.find(r => r.pid === 9).ok, false, 'another dedicated server is never closed');
+  assert.match(result.message, /Closed 4 of 5/);
+  assert.equal(manager.status().state, 'running');
+  const status = await manager.armaStatus();
+  assert.ok(status.processes.some(p => p.pid === own && p.role === 'Dedicated server (started by ArmaHost)' && !p.closable));
+}));
+
+test('endGameProcesses re-checks names and explains access denied', async () => {
+  const list = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 10 }], servers: [{ name: 'arma3server.exe', pid: 11 }], launchers: [], battleye: [] });
+  const denied = Object.assign(new Error('Command failed'), { stderr: 'ERROR: The process with PID 10 could not be terminated. Reason: Access is denied.' });
+  const results = await endGameProcesses([10, 11, 12], { list, kill: async () => { throw denied; } });
+  assert.match(results[0].message, /access denied.*Task Manager/i);
+  assert.equal(results[1].ok, false); assert.equal(results[2].ok, false);
+});
+
+test('diagnostics list running Arma processes and flag two copies of the game', async () => {
+  const { diagnostics } = await import('../src/discovery.mjs');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'arma-diag-'));
+  try {
+    const s = { ...defaults(), port: 24700 + (process.pid % 100) * 10 };
+    const two = [{ name: 'arma3_x64.exe', pid: 5, role: 'Game', closable: true }, { name: 'arma3_x64.exe', pid: 6, role: 'Game', closable: true }];
+    let row = (await diagnostics(s, dir, false, { processes: two })).checks.find(c => c.name === 'Running Arma processes');
+    assert.equal(row.ok, false); assert.match(row.detail, /PID 5: Game; .*PID 6: Game.*More than one copy/);
+    const normal = [two[0], { name: 'arma3server_x64.exe', pid: 7, role: 'Dedicated server (started by ArmaHost)', closable: false }];
+    row = (await diagnostics(s, dir, false, { processes: normal })).checks.find(c => c.name === 'Running Arma processes');
+    assert.equal(row.ok, true);
+    row = (await diagnostics(s, dir, false, { processes: [] })).checks.find(c => c.name === 'Running Arma processes');
+    assert.equal(row.detail, 'None running.');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
 
 test('join method and UPnP settings are validated; UPnP only applies when hosting directly', () => {
   assert.equal(validateSettings(defaults()).joinMethod, 'launcher');

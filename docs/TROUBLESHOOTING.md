@@ -92,10 +92,17 @@ With live monitoring (BattlEye RCon) enabled, Stop Server first asks the server 
 
 Optional (Setup › Session configuration). When the dedicated server exits with an error while running, it is restarted after 5 seconds, at most 3 times in 10 minutes. Clean exits, Stop Server and failed first starts never trigger it. It only restarts the dedicated server and never launches the game.
 
-## The game sits at the Arma logo after Join
-- Check Task Manager for an older Arma 3 process that's still running (0% CPU), and end it.
-- Use the default join method, **Open the Arma 3 Launcher**. Then use Direct Connect with the copied address.
+## The game sits at the Arma logo, or Task Manager shows two "Arma 3"
+- When you host and play on the same PC, two Arma 3 processes are normal: one is your dedicated server (`arma3server_x64.exe`) and one is the game (`arma3_x64.exe`). **Run diagnostics** lists every Arma process and what it is.
+- Two copies of the **game** are not normal. A copy stuck at the logo (0% CPU) stops a new one from loading. Press **Open Arma 3 Launcher**: ArmaHost lists what is running and offers **Close Arma 3 and open the launcher**. It only closes the game, BattlEye and launcher processes, never a dedicated server.
+- If Windows refuses to close it (access denied), end it in Task Manager (Details tab, `arma3_x64.exe`, End task) or restart the PC.
+- Use the default join method, **Open the Arma 3 Launcher**, then Direct Connect with the copied address.
 - The game's own log (the newest `.rpt` in `%LOCALAPPDATA%\Arma 3\`) shows what it is waiting on.
+
+## Open Arma 3 Launcher does nothing
+- ArmaHost starts `arma3launcher.exe` from the folder of the Arma 3 game executable set in Setup. If that file isn't there, it asks Steam to start Arma 3 instead, which follows your Steam launch options. Set the game path under **Arma 3 Game Installation** and run diagnostics: the **Arma 3 Launcher** row shows the path it will use.
+- If the launcher is already open, ArmaHost says so instead of opening a second one. If you can't see it, choose **Close and reopen the launcher**.
+- The Logs page shows `Opened Arma 3 Launcher: <path> (PID …)` for every launch.
 
 ## Overview shows 127.0.0.1 and "this PC only"
 That's the address while **Allow incoming game connections** is off: only this PC can join.
