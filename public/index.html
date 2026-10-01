@@ -23,7 +23,7 @@
     </nav>
     <div class="sidebar-bottom">
       <div class="side-card">
-        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.7.1</span></div>
+        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.8.0</span></div>
         <div id="side-updates"></div>
         <div class="side-links"><button class="side-link" id="help-button"><span>?</span> Setup notes</button></div>
       </div>
@@ -160,6 +160,12 @@
         </form>
       </section>
       <section id="page-missions" class="page" hidden>
+        <section class="panel coop-panel" id="coop-panel"><div class="panel-top"><div><h2>Co-op starter <span class="badge">NO DOWNLOAD</span></h2><p>No missions? ArmaHost writes a ready co-op mission into your server: squad slots for you and your friends, a respawn point, an Arsenal crate, and Zeus for the admin to spawn enemies, objectives and vehicles.</p></div></div>
+          <div class="form-grid coop-grid"><label>Map<select id="coop-world"><option value="Altis">Altis</option><option value="Stratis">Stratis</option><option value="Malden">Malden 2035</option><option value="VR">Virtual Reality</option><option value="Tanoa">Tanoa (Apex DLC)</option><option value="Enoch">Livonia (Contact DLC)</option></select><small>Everyone needs the map. Tanoa and Livonia need their DLC.</small></label>
+            <label>Player slots<input id="coop-slots" type="number" min="2" max="16" value="8"><small>2–16. Empty slots stay empty (no AI).</small></label></div>
+          <div class="toggle-grid"><label class="toggle-card"><input id="coop-zeus" type="checkbox" checked><span><strong>Zeus for the admin</strong><small>Type <code>#login</code> in game, then press Y to spawn enemies, objectives and vehicles.</small></span></label><label class="toggle-card"><input id="coop-arsenal" type="checkbox" checked><span><strong>Arsenal crate</strong><small>Pick any weapons and gear at the base.</small></span></label></div>
+          <div class="form-footer"><span class="muted">Creates <code id="coop-name">ArmaHost_Coop.Altis</code> in the server’s MPMissions and sets it as your mission.</span><button type="button" id="coop-create" class="button primary">Create &amp; use</button></div>
+        </section>
         <section class="panel"><div class="panel-top"><div><h2>Mission selection</h2><p>Pick a server-installed mission or enter a built-in template.</p></div><button id="scan-missions" class="button subtle">Scan MPMissions</button></div>
           <label>Mission template<input id="mission" placeholder="MyMission.Altis" autocomplete="off" spellcheck="false"><small>Use the mission name plus terrain, without .pbo. Leave empty for in-game mission selection.</small></label>
           <div class="inline-hint">Custom missions must already be in the server’s <code>MPMissions</code> folder. Workshop scenarios are not automatically copied.</div>

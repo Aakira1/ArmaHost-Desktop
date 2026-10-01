@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.7.1
+# ArmaHost Desktop 1.8.0
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.8.0:** **Co-op starter**: no missions? ArmaHost writes a ready co-op mission (squad slots, respawn base, Arsenal, Zeus for the admin) on Altis, Stratis, Malden, VR, Tanoa or Livonia and selects it.
 
 **1.7.1:** Copy buttons work in the desktop app, the menu bar is hidden, a new logo and sidebar, admin Steam ID with no password, a warning before starting without a mission, and the firewall helper now reports Windows' real error.
 
