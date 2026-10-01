@@ -1,6 +1,6 @@
 {
   "name": "armahost-desktop",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "description": "Windows desktop control centre for local Arma 3 servers",
   "type": "module",

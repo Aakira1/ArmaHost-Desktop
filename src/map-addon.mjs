@@ -65,7 +65,7 @@ ARMAHOST_mapFeed = true;
         private _units = allUnits select [0, ${LIMITS.units}];
         private _vehicles = (vehicles select {_x isKindOf "AllVehicles"}) select [0, ${LIMITS.vehicles}];
         private _markers = (allMapMarkers select {markerShape _x != "POLYLINE"}) select [0, ${LIMITS.markers}];
-        diag_log text ("AHMAP|F|" + (_seq toFixed 0) + "|" + (time call _int) + "|" + (worldName call _clean) + "|" + (worldSize call _int) + "|" + (_interval toFixed 0));
+        diag_log text ("AHMAP|F|" + (_seq toFixed 0) + "|" + (time call _int) + "|" + (worldName call _clean) + "|" + (worldSize call _int) + "|" + (_interval toFixed 0) + "|" + ((getText (configFile >> "CfgWorlds" >> worldName >> "pictureMap")) call _clean));
         ["U", _units apply {
             private _p = getPosWorld _x;
             private _v = vehicle _x;

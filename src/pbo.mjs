@@ -11,7 +11,7 @@ function entry(name, { method = 0, originalSize = 0, timestamp = 0, dataSize = 0
   return Buffer.concat([zstring(name), fields]);
 }
 export function packPbo(files, { prefix, timestamp = 0 } = {}) {
-  if (!prefix || /[\\/\0]/.test(prefix)) throw new Error('PBO prefix must be a plain folder name.');
+  if (!prefix || !/^[A-Za-z0-9_]+(?:\\[A-Za-z0-9_]+)*$/.test(prefix)) throw new Error('PBO prefix must be folder names separated by backslashes.');
   const list = Object.entries(files).map(([name, content]) => {
     if (!/^[A-Za-z0-9_.]+(?:\\[A-Za-z0-9_.]+)*$/.test(name)) throw new Error(`Invalid PBO entry name: ${name}`);
     return [name, Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')];

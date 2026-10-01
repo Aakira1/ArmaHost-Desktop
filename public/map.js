@@ -11,7 +11,7 @@ const grid = (x, y) => `${String(Math.floor(x / 100)).padStart(3, '0')} ${String
 export function initMap({ api, apiBlob, notify, isVisible }) {
   const $ = id => document.getElementById(id);
   const svg = $('map-svg'), tooltip = $('map-tooltip');
-  let snapshot = null, world = null, size = 0, view = null, background = null, timer = null, drag = null;
+  let snapshot = null, world = null, size = 0, view = null, background = null, timer = null, drag = null, backgroundKey = '';
   const shown = () => ({ ai: $('map-ai').checked, vehicles: $('map-vehicles').checked, markers: $('map-markers').checked, labels: $('map-labels').checked });
 
   function setView(next) {
@@ -28,7 +28,7 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
     if (background?.url) URL.revokeObjectURL(background.url);
     background = null;
     try { const blob = await apiBlob(`/api/map/background?world=${encodeURIComponent(name)}`); if (blob) background = { url: URL.createObjectURL(blob) }; } catch { /* No image saved: grid only. */ }
-    $('map-image-clear').hidden = !background;
+    $('map-image-clear').hidden = snapshot?.background?.source !== 'user';
     render();
   }
 
@@ -104,7 +104,16 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
     try {
       snapshot = await api('/api/map');
       const frame = snapshot.frame;
-      if (frame && (frame.world !== world || frame.worldSize !== size)) { world = frame.world; size = frame.worldSize; resetView(); await loadBackground(world); }
+      if (frame && (frame.world !== world || frame.worldSize !== size)) { world = frame.world; size = frame.worldSize; resetView(); backgroundKey = ''; }
+      // Reload the image when its source changes (e.g. the terrain map finished extracting).
+      const key = frame ? `${world}:${snapshot.background?.source}:${snapshot.background?.status}` : '';
+      if (frame && key !== backgroundKey) { backgroundKey = key; await loadBackground(world); }
+      const bg = snapshot.background;
+      $('map-bg-note').textContent = !frame ? '' : bg?.source === 'user' ? `Map image: your own image for ${world}.`
+        : bg?.status === 'ready' ? `Map image: ${world} terrain map from your Arma 3 installation.`
+        : bg?.status === 'extracting' ? `Loading the ${world} terrain map from your Arma 3 files…`
+        : bg?.status === 'failed' ? `No terrain map: ${bg.error} You can set your own image below.`
+        : snapshot.demo ? 'Demo terrain: grid only.' : 'No terrain map reported by the server yet; showing the grid.';
       summary(); render();
     } catch (error) { $('map-updated').textContent = error.message; }
   }
