@@ -254,3 +254,38 @@ test('auto-restart stays off by default, on clean exits and after an explicit st
   assert.equal(validateSettings({ serverName: 'Legacy' }).autoRestart, false);
   assert.throws(() => validateSettings({ ...defaults(), autoRestart: 'yes' }), /autoRestart/);
 }));
+
+test('Join does not use a mod that was removed from the Mods list after the server started', () => fixture(async ({ manager, s, dir, gameCalls }) => {
+  const ghost = path.join(dir, '@RemovedClientMod');
+  await manager.start({ ...s, mods: [{ path: ghost, enabled: true, scope: 'client' }] });
+  const saved = { ...s, mods: [] }; // user removed the mod and is testing vanilla
+  const result = await manager.join(saved);
+  assert.match(result.message, /Game launch/);
+  assert.deepEqual(gameCalls[0].mods, [], 'removed client-only mod must not be passed to the game');
+}));
+
+test('a stale snapshot recovered after an app restart does not block vanilla Join', () => fixture(async ({ manager, s, dir, gameCalls }) => {
+  const ghost = path.join(dir, '@OldSessionMod');
+  await manager.start({ ...s, mods: [{ path: ghost, enabled: true, scope: 'client' }] });
+  const recovered = new ProcessManager({ dir, logs: new LogBook(dir), deps: manager.deps });
+  await recovered.restore();
+  await recovered.join({ ...s, mods: [] });
+  assert.deepEqual(gameCalls.at(-1).mods, []);
+  await recovered.close({ leaveRunning: true });
+}));
+
+test('a shared mod still loaded on the running server is explained, not reported as an unknown mod', () => fixture(async ({ manager, s, dir }) => {
+  const mod = path.join(dir, '@SharedMod'); await mkdir(mod);
+  await manager.start({ ...s, mods: [{ path: mod, enabled: true, scope: 'shared' }] });
+  await rm(mod, { recursive: true });
+  await assert.rejects(manager.join({ ...s, mods: [] }), /running server was started with.*@SharedMod.*no longer in your Mods list.*Restart Server/s);
+}));
+
+test('Join adds current client-only mods to the running server\'s shared mods', () => fixture(async ({ manager, s, dir, gameCalls }) => {
+  const shared = path.join(dir, '@Shared'), client = path.join(dir, '@ClientNew'), server = path.join(dir, '@ServerOnly');
+  for (const p of [shared, client, server]) await mkdir(p);
+  await manager.start({ ...s, mods: [{ path: shared, enabled: true, scope: 'shared' }, { path: server, enabled: true, scope: 'server' }] });
+  await manager.join({ ...s, mods: [{ path: shared, enabled: true, scope: 'shared' }, { path: client, enabled: true, scope: 'client' }] });
+  assert.deepEqual(gameCalls[0].mods.map(m => m.path), [shared, client]);
+  assert.ok(clientArgs(gameCalls[0]).includes(`-mod=${shared};${client}`));
+}));

@@ -87,7 +87,12 @@ function renderDetails(next) {
   $('detail-command-title').textContent = live ? 'ACTIVE SERVER CONFIG — command' : 'NEXT SERVER START — command';
   $('detail-command').textContent = (live ? st.command : $('server-preview').textContent) || '—';
   $('detail-error').hidden = !st.lastError; $('detail-error-text').textContent = st.lastError || '';
+  const key = p => p.replaceAll('\\', '/').toLowerCase();
+  const stale = live ? st.active.modList.filter(m => !next.settings.mods.some(x => x.enabled && key(x.path) === key(m.path))) : [];
   $('detail-diff').hidden = !next.pendingRestart;
+  $('detail-diff').textContent = stale.length
+    ? `The running server was started with ${stale.length} mod(s) no longer in your Mods list: ${stale.map(m => m.path.split(/[\\/]/).pop()).join(', ')}. Restart Server to apply your current Mods list.`
+    : 'ACTIVE SERVER CONFIG above is what is running now. Saved settings differ and apply at NEXT SERVER START (use Restart Server).';
   if (queriedPid && queriedPid !== st.pid) queriedPid = null;
   const ready = st.pid ? st.ready : null;
   $('ready-badge').textContent = next.demo ? 'DEMO' : ready ? (ready.stage === 'mission' ? 'READY · MISSION STARTED' : 'ONLINE') : st.pid ? 'LOADING…' : 'NOT RUNNING';

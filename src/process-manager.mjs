@@ -41,6 +41,17 @@ async function checkUdpPorts(s) {
     }
   } finally { for (const socket of sockets) { try { socket.close(); } catch { /* Already closed/unbound. */ } } }
 }
+const modKey = p => p.replaceAll('\\', '/').replace(/\/$/, '').toLowerCase();
+// Settings for joining the managed server: the running server's shared mods (the game must match
+// what the server loaded) plus the *current* Mods list's game-only mods. Game-only mods never come
+// from the server's start-time snapshot, so removing one takes effect without a server restart.
+export function joinSettings(active, saved) {
+  const mods = [];
+  for (const m of [...active.mods.filter(m => m.scope === 'shared'), ...saved.mods.filter(m => m.scope === 'client')]) {
+    if (!mods.some(x => modKey(x.path) === modKey(m.path))) mods.push(m);
+  }
+  return { ...structuredClone(active), gameExe: saved.gameExe, mods: structuredClone(mods) };
+}
 export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
@@ -121,7 +132,7 @@ export class ProcessManager {
       if (!(await isFile(s.serverExe))) throw new AppError(`Dedicated server executable not found: ${s.serverExe}. Choose arma3server_x64.exe under Dedicated Server Installation in Setup and save.`);
       if (s.gameExe && await isFile(s.gameExe) && await realpath(s.gameExe).catch(() => 1) === await realpath(s.serverExe).catch(() => 2)) throw new AppError('The server and game executables resolve to the same file. Choose different files in Setup.');
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'client')) {
-        if (!(await isDirectory(m.path))) throw new AppError(`Enabled mod folder not found: ${m.path}`);
+        if (!(await isDirectory(m.path))) throw new AppError(`Enabled mod folder not found: ${m.path}. It is in your saved Mods list (${m.scope === 'server' ? 'server only' : 'game + server'}); fix the path or remove it in Mods, then save.`);
       }
       await checkUdpPorts(s);
     }
@@ -301,8 +312,7 @@ export class ProcessManager {
   async join(savedSettings) {
     return this.perform('launching the game', async () => {
       if (!this.child) throw new AppError('Start the managed server first.', 409);
-      const s = { ...structuredClone(this.activeSettings), gameExe: savedSettings.gameExe };
-      return this.launchGame(s);
+      return this.launchGame(joinSettings(this.activeSettings, savedSettings), undefined, savedSettings);
     });
   }
   async joinRemote(settings) {
@@ -313,13 +323,19 @@ export class ProcessManager {
       return this.launchGame(s, { host: s.remoteHost, port: s.remotePort, password: s.remotePassword });
     });
   }
-  async launchGame(s, connection) {
+  async launchGame(s, connection, saved = null) {
       if (Date.now() - this.lastJoin < 10000) throw new AppError('A game launch was just requested. Allow it to open before trying again.', 429);
       if (this.demo) { this.logs.add('DEMO Join clicked. A real session would launch Arma 3; nothing was executed.'); this.lastJoin = Date.now(); return { message: 'Demo only: no game was launched.' }; }
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
       const processes = await this.deps.armaProcesses();
       if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Direct Connect in the existing game, or close it before pressing Join.', 409);
-      for (const m of s.mods.filter(m => m.enabled && m.scope !== 'server')) if (!(await isDirectory(m.path))) throw new AppError(`Game mod folder not found: ${m.path}`);
+      for (const m of s.mods.filter(m => m.enabled && m.scope !== 'server')) {
+        if (await isDirectory(m.path)) continue;
+        const listed = !saved || saved.mods.some(x => x.enabled && modKey(x.path) === modKey(m.path));
+        throw new AppError(listed
+          ? `Game mod folder not found: ${m.path}. It is enabled in your Mods list (${m.scope === 'client' ? 'game only' : 'game + server'}); fix the path or remove it in Mods.`
+          : `The running server was started with mod ${m.path}, which is no longer in your Mods list and its folder is missing on this PC. Restart Server to apply your current Mods list, then join.`);
+      }
       const { exe, args } = this.deps.gameLaunch(s, connection);
       if (!(await isFile(exe))) throw new AppError('Arma3BattlEye.exe is missing from the game folder. Verify Arma 3 in Steam before joining a BattlEye session.');
       if (args.join(' ').length > 28000) throw new AppError('Game arguments exceed the safe Windows command-line length. Reduce mod paths.');
