@@ -54,3 +54,22 @@
 .map-image-row{display:flex;gap:10px;flex-wrap:wrap}.map-image-row input{flex:1;min-width:220px}
 
 #join-pending{flex-wrap:wrap;align-items:center;margin-top:10px}
+
+.update-panel{margin-top:8px}.update-panel summary{cursor:pointer}.update-panel [data-update-dot]{color:var(--accent)}.update-panel .button{margin:4px 6px 4px 0}
+.update-progress{height:6px;background:#0f1713;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:6px 0}.update-progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.update-auto{flex-direction:row;align-items:center;gap:6px;margin:6px 0}.update-advanced{margin-top:6px;font-size:12px}.update-advanced input{margin-top:6px}
+.update-banner{flex-wrap:wrap;align-items:center}.update-notes-text{white-space:pre-wrap;max-height:50vh;overflow:auto;font:inherit;font-size:13px}
+
+.top-server{display:inline-flex;align-items:center;gap:8px;background:transparent;border:1px solid var(--line);border-radius:999px;color:var(--text);padding:5px 12px;font-size:11px;letter-spacing:.06em}.top-server:hover{border-color:var(--accent)}
+.top-server .dot,.nav-dot{width:8px;height:8px;border-radius:50%;background:#56615b;display:inline-block}
+.top-server[data-state=running] .dot,.nav-dot[data-state=running]{background:#e3b341}.top-server[data-state=ready] .dot,.nav-dot[data-state=ready]{background:#3fb950;box-shadow:0 0 6px #3fb950}
+.top-server[data-state=failed] .dot,.nav-dot[data-state=failed]{background:#ff7b72}.top-server[data-state=busy] .dot,.top-server[data-state=starting] .dot,.nav-dot[data-state=busy],.nav-dot[data-state=starting]{background:#e3b341;animation:pulse 1s infinite alternate}
+@keyframes pulse{from{opacity:.35}to{opacity:1}}.top-action{padding:5px 12px;font-size:12px}
+.nav-dot{margin-left:auto;margin-right:6px}.nav-dot:not([data-state]),.nav-dot[data-state=stopped]{visibility:hidden}
+.nav-badge{margin-left:auto;margin-right:6px;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;background:#ff7b72;color:#1a0d0b}.nav-badge.live{background:#3fb950;color:#06200c}
+.log-line.error .log-message{color:#ff9b93}.log-line.warn .log-message{color:#e3c26a}.log-line.error{border-left:2px solid #ff7b72}.log-line.warn{border-left:2px solid #e3b341}
+.log-problems{flex-direction:row;align-items:center;gap:6px;align-self:flex-end;padding-bottom:10px}
+#toast{cursor:pointer}
+@media(max-width:960px){.top-server span{display:none}}
+.nav{white-space:nowrap}.nav-badge{padding:0 6px;font-size:9px}
+.update-panel>summary{font-size:12px;color:var(--accent);font-weight:400}.update-panel .help-text{font-size:12px}

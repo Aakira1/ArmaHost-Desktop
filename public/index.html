@@ -13,18 +13,18 @@
     <a href="#overview" class="brand" aria-label="Local Host home"><span class="brand-icon">A<span>3</span></span><span>LOCAL HOST<small>ARMA 3 CONTROL CENTRE</small></span></a>
     <div class="nav-label">WORKSPACE</div>
     <nav aria-label="Main navigation">
-      <button class="nav active" data-page="overview"><span class="nav-icon">◫</span> Overview <span class="nav-number">01</span></button>
+      <button class="nav active" data-page="overview"><span class="nav-icon">◫</span> Overview <i class="nav-dot" id="nav-server-dot"></i><span class="nav-number">01</span></button>
       <button class="nav" data-page="setup"><span class="nav-icon">⚙</span> Setup <span class="nav-number">02</span></button>
       <button class="nav" data-page="missions"><span class="nav-icon">◇</span> Missions <span class="nav-number">03</span></button>
       <button class="nav" data-page="mods"><span class="nav-icon">▧</span> Mods <span class="nav-number">04</span></button>
       <button class="nav" data-page="presets"><span class="nav-icon">▱</span> Presets <span class="nav-number">05</span></button>
-      <button class="nav" data-page="logs"><span class="nav-icon">≡</span> Logs <span class="nav-number">06</span></button>
-      <button class="nav" data-page="map"><span class="nav-icon">⌖</span> Live map <span class="nav-number">07</span></button>
+      <button class="nav" data-page="logs"><span class="nav-icon">≡</span> Logs <span class="nav-badge" id="nav-log-badge" hidden>0</span><span class="nav-number">06</span></button>
+      <button class="nav" data-page="map"><span class="nav-icon">⌖</span> Live map <span class="nav-badge live" id="nav-map-badge" hidden>LIVE</span><span class="nav-number">07</span></button>
     </nav>
-    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.4.1</small></div>
+    <div class="sidebar-bottom"><div class="local-indicator"><i></i> LOCAL CONTROL ONLY</div><p>No cloud account.<br>No hosted management service.</p><button class="text-button" id="help-button">Read setup notes ↗</button><button class="quit-button" id="quit">Quit Local Host</button><small>UNOFFICIAL UTILITY · V1.5.0</small></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div><span class="muted">Workspace</span><span class="slash">/</span><strong id="breadcrumb">Overview</strong></div><div class="top-status"><span id="mode-badge" class="badge">LOCAL</span><span id="connection"><i class="dot"></i> Connecting</span></div></header>
+    <header class="topbar"><div><span class="muted">Workspace</span><span class="slash">/</span><strong id="breadcrumb">Overview</strong></div><div class="top-status"><button type="button" id="top-server" class="top-server" title="Dedicated server status. Click for Overview."><i class="dot"></i><span id="top-server-text">SERVER STOPPED</span></button><button type="button" id="top-action" class="button subtle top-action">Start server</button><span id="mode-badge" class="badge">LOCAL</span><span id="connection"><i class="dot"></i> Connecting</span></div></header>
     <main id="main">
       <div id="demo-banner" class="notice" hidden><strong>DEMO MODE</strong><span>Try the controls with a harmless test process. This does not host Arma 3 or launch the game.</span></div>
       <div id="offline-banner" class="notice danger" hidden><strong>Dashboard disconnected.</strong><span>Keep the launcher console open. Use its private link again after restarting.</span></div>
@@ -153,7 +153,7 @@
         </section>
       </section>
       <section id="page-logs" class="page" hidden>
-        <section class="panel"><div class="panel-top"><div><h2>Live process output</h2><p>Manager events, server stdout/stderr and new RPT lines. No remote command console.</p></div><button id="export-logs" class="button subtle">Export visible session</button></div><div class="log-toolbar"><label>Source<select id="log-source"><option value="all">All sources</option><option value="app">Manager</option><option value="server">Server process</option><option value="rpt">RPT file</option></select></label><label class="grow">Filter<input id="log-filter" placeholder="Filter messages…"></label><label class="inline-check"><input type="checkbox" id="log-pause"> Pause display</label></div><div id="full-log" class="console full-console" tabindex="0" aria-label="Session log"></div><div class="panel-footer"><span id="log-count">0 lines</span><span>Known passwords redacted · Latest 1,000 server-side lines retained</span></div></section>
+        <section class="panel"><div class="panel-top"><div><h2>Live process output</h2><p>Manager events, server stdout/stderr and new RPT lines. No remote command console.</p></div><button id="export-logs" class="button subtle">Export visible session</button></div><div class="log-toolbar"><label>Source<select id="log-source"><option value="all">All sources</option><option value="app">Manager</option><option value="server">Server process</option><option value="rpt">RPT file</option></select></label><label class="grow">Filter<input id="log-filter" placeholder="Filter messages…"></label><label class="log-problems"><input type="checkbox" id="log-problems"> Problems only</label><label class="inline-check"><input type="checkbox" id="log-pause"> Pause display</label></div><div id="full-log" class="console full-console" tabindex="0" aria-label="Session log"></div><div class="panel-footer"><span id="log-count">0 lines</span><span>Known passwords redacted · Latest 1,000 server-side lines retained</span></div></section>
       </section>
       <footer class="footer"><span>ARMA 3 LOCAL HOST <span class="muted">/ Independent community utility</span></span><span id="footer-port">127.0.0.1 · TCP 3000</span></footer>
     </main>

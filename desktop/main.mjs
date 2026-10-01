@@ -3,7 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createApp } from '../src/http.mjs';
-import { DesktopUpdater, releasesUrl } from './updater.mjs';
+import { DesktopUpdater, UpdateService, installPlan, releasesUrl } from './updater.mjs';
+import { access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,19 +70,35 @@ async function boot() {
   });
   ipcMain.handle('desktop:data', async event => { trusted(event); const error = await shell.openPath(dir); if (error) throw new Error(error); });
   ipcMain.handle('desktop:vpn-guide', async event => { trusted(event); await shell.openExternal('https://tailscale.com/docs/use-cases/personal-or-at-home-use/share-private-game-server'); });
-  const updater = new DesktopUpdater({ version: app.getVersion(), dir: path.join(app.getPath('userData'), 'updates'), portable: Boolean(process.env.PORTABLE_EXECUTABLE_FILE) });
-  let downloadedUpdate = null;
-  ipcMain.handle('desktop:update-check', async (event, token) => { trusted(event); downloadedUpdate = null; return updater.check(token); });
-  ipcMain.handle('desktop:update-download', async event => { trusted(event); downloadedUpdate = await updater.download(); return { message: 'Update downloaded and SHA-256 verified. Ready to install.' }; });
-  ipcMain.handle('desktop:update-releases', async event => { trusted(event); await shell.openExternal(releasesUrl); });
-  ipcMain.handle('desktop:update-install', async event => {
+  // Background updates: check on a schedule, download + verify, then offer a one-click restart.
+  const portableFile = process.env.PORTABLE_EXECUTABLE_FILE || '';
+  const updater = new DesktopUpdater({ version: app.getVersion(), dir: path.join(app.getPath('userData'), 'updates'), portable: Boolean(portableFile) });
+  let downloadDir = updater.dir;
+  if (portableFile) { try { await access(path.dirname(portableFile), constants.W_OK); downloadDir = path.dirname(portableFile); } catch { /* Read-only folder: keep the download in app data. */ } }
+  const updates = new UpdateService({ updater, stateFile: path.join(updater.dir, 'state.json'), downloadDir });
+  updates.onState(state => { if (window && !window.isDestroyed()) window.webContents.send('update:state', state); });
+  await updates.load();
+  if (!demo && !smoke && app.isPackaged) updates.start();
+  ipcMain.handle('update:get-state', event => { trusted(event); return updates.state; });
+  ipcMain.handle('update:check-now', async (event, token = '') => { trusted(event); return updates.check({ token: typeof token === 'string' ? token : '' }); });
+  ipcMain.handle('update:set-auto', async (event, value) => { trusted(event); return updates.setAutoCheck(value === true); });
+  ipcMain.handle('update:skip', async event => { trusted(event); return updates.skip(updates.state.available); });
+  ipcMain.handle('update:open-releases', async event => { trusted(event); await shell.openExternal(releasesUrl); });
+  ipcMain.handle('update:install', async event => {
     trusted(event);
-    if (!downloadedUpdate) throw new Error('Download and verify an update first.');
-    const answer = await dialog.showMessageBox(window, { title: 'Install update?', message: updater.portable ? 'Close ArmaHost and show the new portable executable?' : 'Close ArmaHost and run the downloaded update?', detail: updater.portable ? 'After this app closes, double-click the highlighted executable in Explorer. Replace your old portable file afterwards. The server stays running; unsaved edits are lost.' : 'The dedicated server stays running. Unsaved dashboard changes will be lost.', buttons: ['Cancel', 'Continue'], defaultId: 0, cancelId: 0 });
-    if (answer.response !== 1) return;
-    if (updater.portable) { shell.showItemInFolder(downloadedUpdate); await finishQuit(); return; }
-    const child = spawn(downloadedUpdate, [], { detached: true, stdio: 'ignore', shell: false });
-    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); }); child.unref(); await finishQuit();
+    const state = updates.state;
+    if (state.status !== 'ready' || !state.file) throw new Error('No verified update is ready yet.');
+    if (backend.manager.busy) throw new Error(`The server is ${backend.manager.busy}. Try again when it has finished.`);
+    const answer = await dialog.showMessageBox(window, { type: 'question', title: 'Restart to update?', message: `Install ArmaHost ${state.available} and restart?`,
+      detail: `${backend.manager.child ? 'Your dedicated server keeps running and ArmaHost reconnects to it after the update. ' : ''}${dirty ? 'Unsaved dashboard changes will be lost. ' : ''}${updater.portable ? 'The new portable version starts automatically; you can delete the old file afterwards.' : 'The update installs silently and ArmaHost reopens.'}`,
+      buttons: ['Cancel', 'Restart & update'], defaultId: 1, cancelId: 0 });
+    if (answer.response !== 1) return { started: false };
+    const plan = installPlan({ file: state.file, portable: updater.portable });
+    const child = spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', shell: false, cwd: path.dirname(plan.command) });
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+    child.unref(); backend.logs.add(`Installing ArmaHost ${state.available} (${plan.kind}). The dedicated server keeps running.`);
+    await finishQuit();
+    return { started: true };
   });
   ipcMain.on('desktop:dirty', (event, value) => { trusted(event); dirty = value === true; });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -96,7 +114,7 @@ async function boot() {
     { label: 'File', submenu: [{ label: 'Open data folder', click: () => { void shell.openPath(dir); } }, { type: 'separator' }, { label: 'Quit', accelerator: 'Alt+F4', click: () => { void requestClose(); } }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
-    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.4.1', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
+    { label: 'Help', submenu: [{ label: 'About ArmaHost', click: () => { void dialog.showMessageBox(window, { title: 'ArmaHost Desktop', message: 'ArmaHost Desktop 1.5.0', detail: 'An unofficial local Arma 3 server manager. Built on Arma 3 Local Host.' }); } }] }
   ]));
   window.once('ready-to-show', () => window.show());
   await window.loadURL(backend.url + '/#token=' + backend.token);
@@ -121,7 +139,7 @@ async function boot() {
     await new Promise(resolve => setTimeout(resolve, 350));
     result.testMessage = await window.webContents.executeJavaScript("document.getElementById('toast').textContent.includes('no in-game message')");
     if (!result.testMessage) throw new Error('Test message UI did not respond.');
-    result.updater = await window.webContents.executeJavaScript("!!document.querySelector('[data-check]') && typeof window.armaDesktop.downloadUpdate === 'function'");
+    result.updater = await window.webContents.executeJavaScript("!!document.querySelector('[data-update-check]') && typeof window.armaDesktop.updates.install === 'function' && !!document.getElementById('update-banner')");
     await backend.manager.stop();
     result.demoStopped = !backend.manager.child;
     await window.webContents.executeJavaScript("document.getElementById('role-join').click(); document.getElementById('join-remote').click();");
