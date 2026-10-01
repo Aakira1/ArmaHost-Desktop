@@ -289,3 +289,60 @@ test('Join adds current client-only mods to the running server\'s shared mods', 
   assert.deepEqual(gameCalls[0].mods.map(m => m.path), [shared, client]);
   assert.ok(clientArgs(gameCalls[0]).includes(`-mod=${shared};${client}`));
 }));
+
+test('game launch skips the menu scene by default and adds -hugePages only when chosen', () => {
+  const base = validateSettings(defaults());
+  assert.equal(base.fastJoin, true); assert.equal(base.hugePages, false);
+  const args = clientArgs(base);
+  assert.ok(args.includes('-world=empty')); assert.ok(!args.includes('-hugePages'));
+  assert.ok(args.indexOf('-world=empty') < args.findIndex(a => a.startsWith('-connect=')));
+  assert.ok(!clientArgs(validateSettings({ ...defaults(), fastJoin: false })).includes('-world=empty'));
+  assert.ok(clientArgs(validateSettings({ ...defaults(), hugePages: true })).includes('-hugePages'));
+  assert.ok(clientArgs(base, { host: '1.2.3.4', port: 2402, password: '' }).includes('-world=empty'), 'applies to joining a friend too');
+  for (const key of ['fastJoin', 'hugePages']) assert.throws(() => validateSettings({ ...defaults(), [key]: 'yes' }), new RegExp(key));
+});
+
+test('Join while the server is still loading waits, then launches once the server is online', () => fixture(async ({ manager, s, spawns, gameCalls, logs }) => {
+  manager.deps.joinPollMs = 10; manager.deps.joinQueryMs = 0; manager.deps.queryServer = async () => { throw new Error('No reply'); };
+  await manager.start(s);
+  const result = await manager.join(s, { whenReady: true });
+  assert.equal(result.waiting, true); assert.match(result.message, /launch automatically/);
+  assert.equal(gameCalls.length, 0); assert.ok(manager.status().pendingJoin);
+  assert.equal(manager.busy, null, 'waiting must not lock Stop/Restart');
+  logs.add('12:00:00 Host identity created.', 'rpt');
+  for (let i = 0; i < 50 && !gameCalls.length; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(gameCalls.length, 1); assert.equal(manager.status().pendingJoin, null);
+  assert.equal(spawns.length, 2);
+}));
+
+test('a successful server query also releases a waiting Join', () => fixture(async ({ manager, s, gameCalls }) => {
+  manager.deps.joinPollMs = 10; manager.deps.joinQueryMs = 0; let up = false;
+  manager.deps.queryServer = async () => { if (!up) throw new Error('No reply'); return { name: 'x', players: 0, maxPlayers: 1, latencyMs: 1 }; };
+  await manager.start(s); await manager.join(s, { whenReady: true });
+  up = true;
+  for (let i = 0; i < 50 && !gameCalls.length; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(gameCalls.length, 1);
+}));
+
+test('Join launches immediately when the server is already online or when asked to', () => fixture(async ({ manager, s, gameCalls, logs }) => {
+  await manager.start(s);
+  logs.add('Host identity created.', 'rpt');
+  const ready = await manager.join(s, { whenReady: true });
+  assert.ok(!ready.waiting); assert.equal(gameCalls.length, 1);
+}));
+
+test('a waiting Join can be cancelled, is cancelled by Stop, and times out with a clear message', () => fixture(async ({ manager, s, gameCalls }) => {
+  Object.assign(manager.deps, { joinPollMs: 10, joinQueryMs: 0, joinWaitMs: 60, queryServer: async () => { throw new Error('No reply'); } });
+  await manager.start(s);
+  await manager.join(s, { whenReady: true });
+  assert.equal(manager.cancelJoin().pendingJoin, null);
+  await manager.join(s, { whenReady: true });
+  await manager.stop();
+  assert.equal(manager.status().pendingJoin, null);
+  await manager.start(s);
+  await manager.join(s, { whenReady: true });
+  for (let i = 0; i < 30 && manager.status().pendingJoin; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(manager.status().pendingJoin, null); assert.match(manager.status().lastError, /did not come online/);
+  assert.equal(gameCalls.length, 0);
+  await assert.rejects(manager.join(s, { whenReady: true }).then(() => manager.join(s, { whenReady: true })), /already waiting/i);
+}));

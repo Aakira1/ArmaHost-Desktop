@@ -24,7 +24,7 @@ let logEntries = [];
 let toastTimer;
 let presetSignature = '';
 const inputKeys = ['gameExe', 'serverExe', 'serverName', 'password', 'adminPassword', 'mission', 'difficulty', 'vpnIp', 'rconPassword', 'publicIp', 'remoteHost', 'remotePassword'];
-const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'starlink', 'starlinkVpn', 'rconEnabled'];
+const flagKeys = ['lan', 'battleye', 'persistent', 'autoInit', 'autoRestart', 'liveMap', 'fastJoin', 'hugePages', 'starlink', 'starlinkVpn', 'rconEnabled'];
 const settingIds = new Set([...inputKeys, ...flagKeys, 'port', 'maxPlayers', 'verifySignatures', 'modRoots', 'rconPort', 'remotePort', 'liveMapInterval']);
 const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const fileName = value => value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value;
@@ -103,6 +103,8 @@ function renderDetails(next) {
     ? `The running server was started with ${stale.length} mod(s) no longer in your Mods list: ${stale.map(m => m.path.split(/[\\/]/).pop()).join(', ')}. Restart Server to apply your current Mods list.`
     : 'ACTIVE SERVER CONFIG above is what is running now. Saved settings differ and apply at NEXT SERVER START (use Restart Server).';
   if (queriedPid && queriedPid !== st.pid) queriedPid = null;
+  $('join-pending').hidden = !st.pendingJoin;
+  if (st.pendingJoin) $('join-pending-text').textContent = `The game will launch automatically once the server is online (waiting ${duration(Math.floor((Date.now() - st.pendingJoin.since) / 1000))}).`;
   const ready = st.pid ? st.ready : null;
   $('ready-badge').textContent = next.demo ? 'DEMO' : ready ? (ready.stage === 'mission' ? 'READY · MISSION STARTED' : 'ONLINE') : st.pid ? 'LOADING…' : 'NOT RUNNING';
   $('ready-badge').classList.toggle('ready', Boolean(ready));
@@ -126,6 +128,7 @@ function updateControls() {
   const running = state?.status.state === 'running'; const transitioning = busy || Boolean(state?.status.busy) || shuttingDown;
   $('start-server').disabled = !state || Boolean(state.status.pid) || transitioning || state.status.state === 'stopping';
   for (const id of ['join-game', 'restart-server', 'stop-server', 'query-server']) $(id).disabled = !running || transitioning;
+  if (state?.status.pendingJoin) $('join-game').disabled = true;
   $('join-remote').disabled = !state || transitioning;
   if (state?.live) renderLive(state.live);
 }
@@ -218,7 +221,19 @@ onButton('restart-server', async () => {
   if (!await confirmAction('Restart the server?', 'This stops the owned process and starts a new one with your saved settings. Unsaved mission progress may be lost. Dashboard edits will be saved first.', 'Restart server')) return;
   if (dirty) await save(true); applyState(await api('/api/server/restart', {})); await refreshPreview(); notify('Server process restarted. Check the log before joining.');
 });
-onButton('join-game', async () => { if (dirty) await save(true); const result = await api('/api/game/join', {}); notify(result.message); });
+onButton('join-game', async () => {
+  if (dirty) await save(true);
+  let whenReady = false;
+  if (!state.demo && state.status.pid && !state.status.ready) {
+    // Launching while the server is still loading makes both load at once and the game sit at the logo.
+    whenReady = await confirmAction('The server is still loading', 'Wait for the server to come online and launch the game automatically? This avoids the game and server loading at the same time. While waiting you can still press Launch now to start the game immediately.', 'Join when ready');
+    if (!whenReady) return;
+  }
+  const result = await api('/api/game/join', { whenReady });
+  notify(result.message); applyState(await api('/api/state'));
+});
+onButton('join-now', async () => { await api('/api/game/join/cancel', {}); const result = await api('/api/game/join', {}); notify(result.message); applyState(await api('/api/state')); });
+onButton('join-cancel', async () => { applyState(await api('/api/game/join/cancel', {})); notify('Automatic join cancelled.'); });
 onButton('join-remote', async () => { if (dirty) await save(true); const result = await api('/api/game/join-remote', {}); notify(result.message); });
 function sessionRole(join) {
   $('join-panel').hidden = !join; $('host-panel').hidden = join;
