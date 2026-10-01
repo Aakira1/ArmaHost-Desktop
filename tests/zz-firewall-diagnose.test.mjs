@@ -2,7 +2,8 @@
 import test from 'node:test';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdir, copyFile, realpath } from 'node:fs/promises';
+import { mkdir, copyFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { allowScript } from '../src/firewall.mjs';
@@ -18,7 +19,7 @@ test('diagnose firewall program paths', { skip: process.platform !== 'win32' }, 
   const cleanup = "Get-NetFirewallRule -Group 'ArmaHost' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue";
   for (const [name, file] of Object.entries(candidates)) {
     await mkdir(path.dirname(file), { recursive: true }); await copyFile(process.execPath, file);
-    for (const p of [file, await realpath.native(file)]) {
+    for (const p of [file, realpathSync.native(file)]) {
       const script = allowScript({ serverExe: p, port: 47330 }, ['Public']).replace("[Console]::Error.WriteLine($_.Exception.Message); exit 3", "'FAIL ' + $_.Exception.Message; exit 3").replace('exit 0', "'OK'; exit 0");
       const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]).catch(e => ({ stdout: `EXIT ${e.code} ${e.stdout}` }));
       console.log('DIAG', name, JSON.stringify(p), String(r.stdout).trim().slice(0, 200));

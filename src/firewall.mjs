@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { AppError } from './config.mjs';
 const execute = promisify(execFile);
 
@@ -97,7 +97,7 @@ export class Firewall {
         : 'No ArmaHost rule yet. Windows may block friends from reaching the server.' };
   }
   // Windows Firewall wants the program's real full path (not a short 8.3 form like RUNNER~1).
-  async resolved(s) { checkInputs(s); try { return { ...s, serverExe: await realpath.native(s.serverExe) }; } catch { return s; } }
+  async resolved(s) { checkInputs(s); try { return { ...s, serverExe: realpathSync.native(s.serverExe) }; } catch { return s; } }
   async allow(input) {
     if (!this.supported()) throw new AppError('Windows Firewall changes are only available on Windows.');
     const s = await this.resolved(input);
