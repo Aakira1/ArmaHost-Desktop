@@ -73,3 +73,5 @@
 @media(max-width:960px){.top-server span{display:none}}
 .nav{white-space:nowrap}.nav-badge{padding:0 6px;font-size:9px}
 .update-panel>summary{font-size:12px;color:var(--accent);font-weight:400}.update-panel .help-text{font-size:12px}
+
+.map-grid line{stroke:rgba(25,40,38,.32)}.map-toggle{white-space:nowrap}

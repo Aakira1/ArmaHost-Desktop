@@ -1,4 +1,5 @@
 // Live map page: renders AHMAP frames from /api/map as SVG on a grid scaled to the terrain.
+import { renderTopo } from './topo-render.js';
 const NS = 'http://www.w3.org/2000/svg';
 const SIDE_COLORS = { WEST: '#5b9bff', EAST: '#ff6b6b', GUER: '#46c35b', CIV: '#c79bff' };
 const SIDE_NAMES = { WEST: 'BLUFOR', EAST: 'OPFOR', GUER: 'Independent', CIV: 'Civilian' };
@@ -12,6 +13,22 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
   const $ = id => document.getElementById(id);
   const svg = $('map-svg'), tooltip = $('map-tooltip');
   let snapshot = null, world = null, size = 0, view = null, background = null, timer = null, drag = null, backgroundKey = '';
+  const topoImages = new Map(); // world -> object URL of the drawn topographic map
+  let base = 'topo'; try { base = localStorage.getItem('arma-map-base') || 'topo'; } catch { /* Storage unavailable. */ }
+  $('map-base').value = base;
+  $('map-base').addEventListener('change', () => { base = $('map-base').value; try { localStorage.setItem('arma-map-base', base); } catch { /* Not persisted. */ } backgroundKey = ''; void refresh(); });
+  async function topoImage(name) {
+    if (topoImages.has(name)) return topoImages.get(name);
+    const blob = await apiBlob(`/api/map/topo?world=${encodeURIComponent(name)}`);
+    if (!blob) return null;
+    const data = JSON.parse(await blob.text());
+    $('map-bg-note').textContent = `Drawing the ${name} topographic map…`;
+    await new Promise(resolve => setTimeout(resolve, 30)); // let the note paint before the heavy draw
+    const canvas = renderTopo(document.createElement('canvas'), data);
+    const url = URL.createObjectURL(await new Promise(resolve => canvas.toBlob(resolve, 'image/png')));
+    topoImages.set(name, url);
+    return url;
+  }
   const shown = () => ({ ai: $('map-ai').checked, vehicles: $('map-vehicles').checked, markers: $('map-markers').checked, labels: $('map-labels').checked });
 
   function setView(next) {
@@ -25,9 +42,15 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
   const toSvg = (x, y) => [x, size - y]; // Arma Y points north; SVG Y points down
 
   async function loadBackground(name) {
-    if (background?.url) URL.revokeObjectURL(background.url);
+    if (background?.url && !background.cached) URL.revokeObjectURL(background.url);
     background = null;
-    try { const blob = await apiBlob(`/api/map/background?world=${encodeURIComponent(name)}`); if (blob) background = { url: URL.createObjectURL(blob) }; } catch { /* No image saved: grid only. */ }
+    if (base === 'grid') { render(); return; }
+    if (base === 'topo' && snapshot?.topo?.status === 'ready') {
+      try { const url = await topoImage(name); if (url) background = { url, cached: true, kind: 'topo' }; } catch (error) { console.warn('Topographic map failed', error); }
+    }
+    if (!background) {
+      try { const blob = await apiBlob(`/api/map/background?world=${encodeURIComponent(name)}`); if (blob) background = { url: URL.createObjectURL(blob), kind: 'image' }; } catch { /* No image saved: grid only. */ }
+    }
     $('map-image-clear').hidden = snapshot?.background?.source !== 'user';
     render();
   }
@@ -39,7 +62,7 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
     if (!frame || !view) return;
     const k = pxScale(), show = shown();
     el('rect', { x: 0, y: 0, width: size, height: size, class: 'map-world' }, svg);
-    if (background) el('image', { href: background.url, x: 0, y: 0, width: size, height: size, preserveAspectRatio: 'none', opacity: 0.85 }, svg);
+    if (background) el('image', { href: background.url, x: 0, y: 0, width: size, height: size, preserveAspectRatio: 'none', opacity: background.kind === 'topo' ? 1 : 0.85 }, svg);
     // Grid: aim for roughly 6-14 lines across the view.
     const step = [100, 200, 500, 1000, 2000, 5000].find(s => view.w / s <= 14) || 10000;
     const lines = el('g', { class: 'map-grid', 'stroke-width': k }, svg);
@@ -106,14 +129,18 @@ export function initMap({ api, apiBlob, notify, isVisible }) {
       const frame = snapshot.frame;
       if (frame && (frame.world !== world || frame.worldSize !== size)) { world = frame.world; size = frame.worldSize; resetView(); backgroundKey = ''; }
       // Reload the image when its source changes (e.g. the terrain map finished extracting).
-      const key = frame ? `${world}:${snapshot.background?.source}:${snapshot.background?.status}` : '';
+      const key = frame ? `${world}:${base}:${snapshot.background?.source}:${snapshot.background?.status}:${snapshot.topo?.status}` : '';
       if (frame && key !== backgroundKey) { backgroundKey = key; await loadBackground(world); }
       const bg = snapshot.background;
-      $('map-bg-note').textContent = !frame ? '' : bg?.source === 'user' ? `Map image: your own image for ${world}.`
-        : bg?.status === 'ready' ? `Map image: ${world} terrain map from your Arma 3 installation.`
-        : bg?.status === 'extracting' ? `Loading the ${world} terrain map from your Arma 3 files…`
-        : bg?.status === 'failed' ? `No terrain map: ${bg.error} You can set your own image below.`
-        : snapshot.demo ? 'Demo terrain: grid only.' : 'No terrain map reported by the server yet; showing the grid.';
+      const topo = snapshot.topo, sat = bg?.source === 'user' ? `your own image for ${world}` : bg?.status === 'ready' ? `the ${world} satellite map from your Arma 3 files` : '';
+      const building = topo?.status === 'building' ? ` The topographic map is being built by the server (${topo.progress ?? 0}%).` : '';
+      $('map-bg-note').textContent = !frame ? ''
+        : base === 'grid' ? 'Grid only.'
+        : background?.kind === 'topo' ? `Topographic map of ${world}, built from your server's terrain data.`
+        : background ? `Showing ${sat || 'a map image'}.${base === 'topo' ? building || (topo?.status === 'none' && !snapshot.demo ? ' The topographic map will be built the next time the server starts with Live map on.' : '') : ''}`
+        : bg?.status === 'extracting' ? `Loading the ${world} map from your Arma 3 files…${building}`
+        : bg?.status === 'failed' ? `No satellite map: ${bg.error}${building}`
+        : `No map image yet; showing the grid.${building}`;
       summary(); render();
     } catch (error) { $('map-updated').textContent = error.message; }
   }
