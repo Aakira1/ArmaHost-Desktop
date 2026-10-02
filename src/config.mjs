@@ -4,12 +4,15 @@ import { usableAddress, publicAddress, bindAddress, gameAddress } from './networ
 export class AppError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
+// Version of the Launch Arma 3 behaviour defaults. Saved settings without it are moved to the v1.0.0-style
+// direct start once (see Store.open).
+export const LAUNCH_FLOW = 2;
 export function defaults() {
   return {
     gameExe: '', serverExe: '', serverName: 'Arma 3 Local Operations',
     port: 2302, maxPlayers: 16, password: '', adminPassword: '',
     difficulty: 'Regular', mission: '', audience: '', lan: false, battleye: true, starlink: false, vpnIp: '', starlinkVpn: false, publicIp: '',
-    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, fastJoin: true, hugePages: false, joinMethod: 'launcher', upnp: false, mods: [], modRoots: [],
+    verifySignatures: 2, persistent: true, autoInit: false, autoRestart: false, liveMap: false, liveMapInterval: 3, fastJoin: false, hugePages: false, joinMethod: 'direct', launchFlow: LAUNCH_FLOW, upnp: false, mods: [], modRoots: [],
     adminSteamIds: [], rconEnabled: false, rconPort: 2307, rconPassword: '', remoteHost: '', remotePort: 2302, remotePassword: ''
   };
 }
@@ -108,6 +111,7 @@ export function validateSettings(input) {
     if (s.rconPort >= s.port && s.rconPort <= s.port + 4) throw new AppError('RCon port must be outside the five game UDP ports.');
   }
   if (!Number.isInteger(s.liveMapInterval) || s.liveMapInterval < 2 || s.liveMapInterval > 30) throw new AppError('Live map update interval must be a whole number from 2 to 30 seconds.');
+  if (!Number.isInteger(s.launchFlow) || s.launchFlow < 1 || s.launchFlow > 99) throw new AppError('Launch flow version must be a whole number.');
   if (!['launcher', 'direct'].includes(s.joinMethod)) throw new AppError('Join method must be the Arma 3 Launcher or a direct game start.');
   if (s.autoInit && !s.mission) throw new AppError('Auto-initialise requires a mission template.');
   if (s.autoInit && !s.persistent) throw new AppError('Auto-initialise requires persistent mode.');

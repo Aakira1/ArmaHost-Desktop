@@ -69,7 +69,7 @@ export function joinSettings(active, saved) {
 export class ProcessManager {
   constructor({ dir, logs, demo = false, deps = {} }) {
     // Injectable for tests; defaults are the real launchers.
-    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, findLauncher, endGameProcesses, closeWaitMs: 5000, launchVerifyMs: 10000, launchPollMs: 500, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
+    this.deps = { spawn, gameLaunch, armaProcesses, ownsServer, queryServer, findLauncher, endGameProcesses, closeWaitMs: 5000, launchVerifyMs: 15000, launchPollMs: 500, platform: process.platform, startupGraceMs: demo ? 0 : 2500,
       openUrl: url => { const child = spawn('explorer.exe', [url], { detached: true, stdio: 'ignore', windowsHide: true }); child.on('error', () => {}); child.unref(); }, gracefulStopMs: 15000, joinPollMs: 2000, joinQueryMs: 5000, joinWaitMs: 600000, autoRestartDelayMs: 5000, autoRestartLimit: 3, autoRestartWindowMs: 600000, ...deps };
     this.gracefulStop = null; this.ready = null; this.restartTimes = []; this.restartTimer = null; this.closing = false; this.pendingJoin = null;
     logs?.listeners?.add(entry => this.observe(entry));
@@ -395,7 +395,14 @@ export class ProcessManager {
       if (s.joinMethod === 'launcher') return this.openLauncher(s, connection || { host: gameAddress(s), port: s.port, password: s.password });
       if (!(await isFile(s.gameExe))) throw new AppError('Game executable not found. Configure arma3_x64.exe in Setup and save.');
       const processes = await this.deps.armaProcesses();
-      if (processes.games.length) throw new AppError('Arma 3 is already running. Use Multiplayer > Direct Connect in the existing game, or close it before pressing Join.', 409);
+      const running = [...processes.games, ...(processes.battleye || [])];
+      if (running.length) {
+        // Not an error: the dialog lists the running copies and offers to close a stuck one.
+        const listed = running.map(p => `${p.name} (PID ${p.pid})`).join(', ');
+        this.logs.add(`Arma 3 is already running: ${listed}. The game was not started again.`);
+        return { launched: false, launcher: false, running: describeProcesses(processes, this.child?.pid),
+          message: `Arma 3 is already running: ${listed}. Use Multiplayer > Direct Connect in that game, or close it (a copy stuck at the Arma logo stops a new one from loading) and launch again.` };
+      }
       for (const m of s.mods.filter(m => m.enabled && m.scope !== 'server')) {
         if (await isDirectory(m.path)) continue;
         const listed = !saved || saved.mods.some(x => x.enabled && modKey(x.path) === modKey(m.path));
@@ -406,13 +413,22 @@ export class ProcessManager {
       const { exe, args } = this.deps.gameLaunch(s, connection);
       if (!(await isFile(exe))) throw new AppError('Arma3BattlEye.exe is missing from the game folder. Verify Arma 3 in Steam before joining a BattlEye session.');
       if (args.join(' ').length > 28000) throw new AppError('Game arguments exceed the safe Windows command-line length. Reduce mod paths.');
+      this.logs.add('Starting Arma 3');
+      this.logs.add(`Executable: ${exe}`);
+      this.logs.add(`Command: ${displayCommand(exe, args)}`);
       const child = this.deps.spawn(exe, args, { cwd: path.dirname(s.gameExe), shell: false, detached: true, stdio: 'ignore' });
       child.on('error', error => this.logs.add(`Game launch error: ${error.message}`));
       try { await once(child, 'spawn'); } catch (error) { throw new AppError(`Could not launch Arma 3: ${error.message}`); }
       child.unref(); this.lastJoin = Date.now();
-      this.logs.add(`Game launch dispatched: ${displayCommand(exe, args)}.`);
-      if (s.battleye) this.logs.add('Game launched through the official BattlEye bootstrap. Allow its update check to finish.');
-      return { message: 'Game launch dispatched. Joining is not confirmed; check Arma 3.' };
+      this.logs.add(`PID: ${child.pid}`);
+      if (s.battleye) this.logs.add('Started through Arma\u2019s own BattlEye starter. Allow its update check to finish.');
+      // Spawning is not the same as the game running: confirm a game process shows up, and say so if not.
+      if (!(await this.processAppeared(['games', 'battleye']))) {
+        const message = `Arma 3 was started (PID ${child.pid}) but no game process appeared within ${Math.round(this.deps.launchVerifyMs / 1000)} seconds. Check the newest .rpt in %LOCALAPPDATA%\\Arma 3\\ and the Command line in Logs.`;
+        this.logs.add(message); throw new AppError(message, 504);
+      }
+      this.logs.add('Arma 3 is running. Joining is confirmed in the game.');
+      return { launched: true, launcher: false, message: `Game launch dispatched (PID ${child.pid}). Joining is confirmed in the game.` };
   }
   // Join through the official Arma 3 Launcher instead of starting the game directly: the launcher
   // handles BattlEye, mods and updates itself and the player uses Direct Connect. arma3launcher.exe
@@ -466,10 +482,12 @@ export class ProcessManager {
   }
   // Confirms the launcher (or the game it starts) is actually running. Checked by name, because the
   // launcher may hand itself over to Steam and come back under a new PID.
-  async launcherAppeared() {
+  launcherAppeared() { return this.processAppeared(['launchers', 'games', 'battleye']); }
+  // Polls the Windows process list until one of the given kinds (games, battleye, launchers) is running.
+  async processAppeared(kinds) {
     if (!this.deps.launchVerifyMs) return true;
     for (const until = Date.now() + this.deps.launchVerifyMs; ;) {
-      try { const p = await this.deps.armaProcesses(); if (p.launchers?.length || p.games.length || p.battleye?.length) return true; } catch { /* Keep trying. */ }
+      try { const p = await this.deps.armaProcesses(); if (kinds.some(kind => p[kind]?.length)) return true; } catch { /* Keep trying. */ }
       if (Date.now() >= until) return false;
       await sleep(this.deps.launchPollMs);
     }

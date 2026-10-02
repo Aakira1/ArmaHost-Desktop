@@ -1,6 +1,8 @@
-# ArmaHost Desktop 1.8.2
+# ArmaHost Desktop 1.9.0
 
 Windows desktop edition built on Arma 3 Local Host 1.0.0. The original project is preserved in its original directory.
+
+**1.9.0:** Launch Arma 3 is back to the v1.0.0 flow: it starts the game directly with just the connect details, confirms the game is running, and shows the exact command. The Arma 3 Launcher is a second button.
 
 **1.8.2:** Fixed the co-op starter being refused with "dependent on downloadable content that has been deleted (a3_characters_f)".
 

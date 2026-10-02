@@ -8,6 +8,7 @@ import { LogBook } from './logs.mjs';
 import { ProcessManager, joinSettings } from './process-manager.mjs';
 import { discoverInstallations, scanMissions, scanMods, diagnostics, modInfo, steamAccounts } from './discovery.mjs';
 import { Firewall } from './firewall.mjs';
+import { gameLaunch } from './game-launch.mjs';
 import { writeCoopMission } from './coop-mission.mjs';
 import { hostingInfo, detectPublicIp, inviteText } from './network.mjs';
 import { LiveMonitor } from './live-monitor.mjs';
@@ -41,6 +42,12 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
   const monitor = new LiveMonitor(manager, logs);
   manager.gracefulStop = () => monitor.shutdown();
   const backgrounds = new MapBackgrounds(dir);
+  // The exact command Launch Arma 3 will run (password hidden), so a bad launch can be checked by eye.
+  const gameCommandText = settings => {
+    if (!settings.gameExe) return 'Choose the Arma 3 game executable (arma3_x64.exe) in Setup to see the command Launch will run.';
+    if (settings.joinMethod === 'launcher') return `${path.join(path.dirname(settings.gameExe || '.'), 'arma3launcher.exe')} (opens the Arma 3 Launcher with no arguments; join with Direct Connect)`;
+    const plan = gameLaunch(settings); return displayCommand(plan.exe, plan.args);
+  };
   // Invite text for the running session: its address, mods and (only if chosen) the join password.
   const invite = async includePassword => {
     if (!manager.child) throw new AppError('Start the server first. The invite uses the running server\u2019s settings.', 409);
@@ -134,7 +141,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
           const saved = store.snapshot().settings;
           const active = manager.child ? joinSettings(manager.activeSettings, saved) : saved;
           return send(200, { server: displayCommand(saved.serverExe, serverArgs(saved, manager)),
-            client: displayCommand(active.gameExe, clientArgs(active)), config: renderConfig(saved, true),
+            client: gameCommandText(active), config: renderConfig(saved, true),
             clientUsesActive: Boolean(manager.child) });
         }
         if (req.method !== 'POST') throw new AppError('API endpoint not found.', 404);
@@ -161,7 +168,7 @@ export async function createApp({ root, dir, demo = false, port = 3000, onQuit =
         }
         else if (route === 'POST /api/missions/scan') return send(200, await scanMissions(store.snapshot().settings.serverExe));
         else if (route === 'POST /api/mods/scan') return send(200, await scanMods(store.snapshot().settings.modRoots));
-        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child), processes: await manager.armaStatus().then(r => r.processes).catch(() => null) }));
+        else if (route === 'POST /api/diagnostics') return send(200, await diagnostics(store.snapshot().settings, dir, demo, { running: Boolean(manager.child), launchCommand: store.snapshot().settings.gameExe ? gameCommandText(store.snapshot().settings) : null, processes: await manager.armaStatus().then(r => r.processes).catch(() => null) }));
         else if (route === 'POST /api/live/check') return send(200, await monitor.refresh());
         else if (route === 'POST /api/live/message') return send(200, await monitor.broadcast(body.message));
         else if (route === 'POST /api/network/public-ip') return send(200, await detectPublicIp());

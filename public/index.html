@@ -23,7 +23,7 @@
     </nav>
     <div class="sidebar-bottom">
       <div class="side-card">
-        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.8.2</span></div>
+        <div class="side-row"><span class="local-indicator" title="No cloud account. No hosted management service."><i></i> Local only</span><span class="version-chip" id="version-chip">v1.9.0</span></div>
         <div id="side-updates"></div>
         <div class="side-links"><button class="side-link" id="help-button"><span>?</span> Setup notes</button></div>
       </div>
@@ -50,7 +50,8 @@
             <div id="ready-row" class="ready-row"><span id="ready-badge" class="state-badge">NOT READY</span><span id="query-result" class="muted">After starting, use Test server is up to confirm the server answers.</span></div>
             <div class="server-note"><span class="dot"></span><span id="process-note">The manager controls only the server it starts. Your game is separate.</span></div>
             <div class="process-label game-label">PROCESS 2 · ARMA 3 GAME CLIENT — separate, optional, started only by you</div>
-            <div class="server-actions"><button id="join-game" class="button" disabled>Launch Game &amp; Join ↗</button><button type="button" id="open-launcher" class="button subtle" title="Starts arma3launcher.exe from your Arma 3 folder. Works whether or not the server is running.">Open Arma 3 Launcher</button></div>
+            <div class="server-actions"><button id="join-game" class="button" disabled>Launch Arma 3 &amp; join ↗</button><button type="button" id="open-launcher" class="button subtle" title="Starts arma3launcher.exe from your Arma 3 folder. Works whether or not the server is running.">Open Arma 3 Launcher</button></div>
+            <details class="game-command-box"><summary>What Launch Arma 3 will run</summary><pre id="game-command">—</pre></details>
             <div id="join-pending" class="notice" hidden><strong>Waiting for the server…</strong><span id="join-pending-text">The game will launch automatically once the server is online.</span><button type="button" id="join-now" class="button subtle">Launch now</button><button type="button" id="join-cancel" class="button subtle">Cancel</button></div>
           </section>
           <section class="panel preflight-card"><div class="panel-top"><h2>Before you deploy</h2><span class="muted">01—03</span></div>
@@ -130,9 +131,9 @@
             <p id="discovery-note" class="help-text">Detection checks Steam library paths; custom installs can always be entered manually.</p>
           </section>
           <section class="panel"><div class="panel-top"><div><h2>Arma 3 Game Installation</h2><p>Optional. Only used by Launch Game &amp; Join; never needed to start a dedicated server.</p></div></div>
-            <div class="form-grid"><label class="span-2">Arma 3 game executable (arma3_x64.exe)<input id="gameExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3\arma3_x64.exe" autocomplete="off" spellcheck="false" list="game-paths"><small>Full path to arma3_x64.exe or arma3.exe. No surrounding quotes. Must be a different file from the server executable.</small><small id="gameExe-error" class="field-error" hidden></small></label><label class="span-2">When you press Launch Game &amp; Join<select id="joinMethod"><option value="launcher">Open the Arma 3 Launcher (recommended) and use Direct Connect</option><option value="direct">Advanced: start the game directly and connect automatically</option></select><small>The launcher handles BattlEye, mods and game updates itself. The server address is copied for you.</small></label><datalist id="game-paths"></datalist></div>
-            <div class="toggle-grid"><label class="toggle-card"><input id="fastJoin" type="checkbox" checked><span><strong>Fast join</strong><small>Adds <code>-world=empty</code> so the game skips loading a terrain for its main menu and goes straight to connecting. Recommended.</small></span></label>
-            <label class="toggle-card"><input id="hugePages" type="checkbox"><span><strong>Large memory pages</strong><small>Adds <code>-hugePages</code>. Can speed up loading on PCs with plenty of RAM; turn off if the game becomes unstable.</small></span></label></div>
+            <div class="form-grid"><label class="span-2">Arma 3 game executable (arma3_x64.exe)<input id="gameExe" placeholder="C:\Program Files (x86)\Steam\steamapps\common\Arma 3\arma3_x64.exe" autocomplete="off" spellcheck="false" list="game-paths"><small>Full path to arma3_x64.exe or arma3.exe. No surrounding quotes. Must be a different file from the server executable.</small><small id="gameExe-error" class="field-error" hidden></small></label><label class="span-2">When you press Launch Arma 3 &amp; join<select id="joinMethod"><option value="direct">Start the game directly and connect automatically (recommended)</option><option value="launcher">Open the Arma 3 Launcher and use Direct Connect</option></select><small>Direct start runs <code>arma3_x64.exe</code> with just the connect details and your mods. With BattlEye on, it goes through Arma’s own BattlEye starter, still one click. See the exact command under “Launch commands”.</small></label><datalist id="game-paths"></datalist></div>
+            <div class="toggle-grid"><label class="toggle-card"><input id="fastJoin" type="checkbox"><span><strong>Skip the menu scene</strong><small>Advanced, off by default. Adds <code>-world=empty</code> so the game skips loading a terrain for its main menu.</small></span></label>
+            <label class="toggle-card"><input id="hugePages" type="checkbox"><span><strong>Large memory pages</strong><small>Advanced, off by default. Adds <code>-hugePages</code>. Can speed up loading on PCs with plenty of RAM; turn off if the game becomes unstable.</small></span></label></div>
           </section>
           <section class="panel"><div class="panel-top"><div><h2>Live players & test messages</h2><p>Uses BattlEye RCon on this PC. Save and restart to apply these settings.</p></div></div>
             <label class="toggle-card"><input id="rconEnabled" type="checkbox"><span><strong>Enable live server monitoring</strong><small>Requires BattlEye. Checks players every 5 seconds and receives BattlEye console events.</small></span></label>
@@ -150,7 +151,7 @@
             <label>Live map update interval (seconds)<input id="liveMapInterval" type="number" min="2" max="30"><small>2–30 s. Busy missions use at least 5 s automatically.</small></label>
             <label>Signature verification<select id="verifySignatures"><option value="2">Enabled (v2 signatures)</option><option value="0">Disabled — trusted local testing only</option></select></label>
           </div><div class="toggle-grid">
-            <label class="toggle-card"><input id="battleye" type="checkbox" checked><span><strong>BattlEye protection</strong><small>Use the official launcher if direct game startup asks for a BattlEye restart.</small></span></label>
+            <label class="toggle-card"><input id="battleye" type="checkbox" checked><span><strong>BattlEye protection</strong><small>On: Launch starts the game through Arma’s BattlEye starter so it can join. Off: Launch starts the game exactly like v1.0.0. Turn it off only if you don’t want anti-cheat on your server.</small></span></label>
             <label class="toggle-card"><input id="persistent" type="checkbox" checked><span><strong>Persistent mission</strong><small>Allows compatible missions to continue after players leave.</small></span></label>
             <label class="toggle-card"><input id="autoInit" type="checkbox"><span><strong>Auto-initialise mission</strong><small>Requires a selected mission and persistent mode.</small></span></label>
             <label class="toggle-card"><input id="liveMap" type="checkbox"><span><strong>Live map</strong><small>Loads ArmaHost's read-only map script on the server only, so the Live map page can show players, AI, vehicles and markers. Restart the server to apply.</small></span></label>

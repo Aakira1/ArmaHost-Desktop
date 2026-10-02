@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaults, validateSettings, serverArgs, clientArgs, assertServerExecutable, renderConfig } from '../src/config.mjs';
 import { ProcessManager } from '../src/process-manager.mjs';
-import { findLauncher, endGameProcesses } from '../src/game-launch.mjs';
+import { findLauncher, endGameProcesses, gameLaunch } from '../src/game-launch.mjs';
+import { migrateLaunchFlow } from '../src/store.mjs';
 import { LogBook } from '../src/logs.mjs';
 
 let portBase = 23100 + (process.pid % 200) * 10;
@@ -74,8 +75,10 @@ test('Join refuses when the game is already running and without a server', () =>
   await assert.rejects(manager.join(s), /Start the managed server first/);
   await manager.start(s);
   manager.deps.armaProcesses = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 9 }], servers: [] });
-  await assert.rejects(manager.join(s), /already running/);
-  assert.equal(spawns.length, 1);
+  const blocked = await manager.join(s);
+  assert.equal(blocked.launched, false); assert.match(blocked.message, /already running: arma3_x64\.exe \(PID 9\)/);
+  assert.deepEqual(blocked.running.map(p => [p.pid, p.closable]), [[9, true]]);
+  assert.equal(spawns.length, 1, 'no second game was started');
 }));
 
 test('wrong executables are rejected for the server path', () => {
@@ -293,16 +296,15 @@ test('Join adds current client-only mods to the running server\'s shared mods', 
   assert.ok(clientArgs(gameCalls[0]).includes(`-mod=${shared};${client}`));
 }));
 
-test('game launch skips the menu scene by default and adds -hugePages only when chosen', () => {
+test('game launch arguments are exactly the v1.0.0 list by default; the menu-scene skip and -hugePages are opt-in', () => {
   const base = validateSettings(defaults());
-  assert.equal(base.fastJoin, true); assert.equal(base.hugePages, false);
-  const args = clientArgs(base);
-  assert.ok(args.includes('-world=empty')); assert.ok(!args.includes('-hugePages'));
-  assert.ok(args.indexOf('-world=empty') < args.findIndex(a => a.startsWith('-connect=')));
-  assert.ok(!clientArgs(validateSettings({ ...defaults(), fastJoin: false })).includes('-world=empty'));
+  assert.equal(base.fastJoin, false); assert.equal(base.hugePages, false); assert.equal(base.joinMethod, 'direct');
+  // v1.0.0: ['-noSplash', '-skipIntro', '-connect=127.0.0.1', '-port=<port>', '-password=<pw>', mods]
+  assert.deepEqual(clientArgs({ ...base, password: 'pw' }), ['-noSplash', '-skipIntro', '-connect=127.0.0.1', `-port=${base.port}`, '-password=pw']);
+  const fast = clientArgs(validateSettings({ ...defaults(), fastJoin: true }));
+  assert.ok(fast.includes('-world=empty')); assert.ok(fast.indexOf('-world=empty') < fast.findIndex(a => a.startsWith('-connect=')));
   assert.ok(clientArgs(validateSettings({ ...defaults(), hugePages: true })).includes('-hugePages'));
-  assert.ok(clientArgs(base, { host: '1.2.3.4', port: 2402, password: '' }).includes('-world=empty'), 'applies to joining a friend too');
-  for (const key of ['fastJoin', 'hugePages']) assert.throws(() => validateSettings({ ...defaults(), [key]: 'yes' }), new RegExp(key));
+  assert.ok(clientArgs(validateSettings({ ...defaults(), fastJoin: true }), { host: '1.2.3.4', port: 2402, password: '' }).includes('-world=empty'), 'applies to joining a friend too');
 });
 
 test('Join while the server is still loading waits, then launches once the server is online', () => fixture(async ({ manager, s, spawns, gameCalls, logs }) => {
@@ -449,7 +451,8 @@ test('diagnostics list running Arma processes and flag two copies of the game', 
 });
 
 test('join method and UPnP settings are validated; UPnP only applies when hosting directly', () => {
-  assert.equal(validateSettings(defaults()).joinMethod, 'launcher');
+  assert.equal(validateSettings(defaults()).joinMethod, 'direct');
+  assert.equal(validateSettings({ ...defaults(), joinMethod: 'launcher' }).joinMethod, 'launcher');
   assert.throws(() => validateSettings({ ...defaults(), joinMethod: 'cmd.exe' }), /Join method/);
   const cfg = settings => renderConfig(validateSettings({ ...defaults(), password: 'pw', ...settings }));
   assert.match(cfg({ upnp: true }), /upnp = 0;/, 'not when only this PC can join');
@@ -472,3 +475,50 @@ test('if arma3launcher.exe does not stay open, Steam is asked instead and the re
   const ok = await manager.openLauncherOnly(s);
   assert.equal(ok.verified, true); assert.equal(ok.viaSteam, false); assert.deepEqual(opened, []);
 }));
+
+test('direct Launch Arma 3 logs the command like Start does, never touches Steam or the launcher, and says the game is running', () => fixture(async ({ manager, s, spawns, opened, logs, gameDir }) => {
+  await manager.start({ ...s, password: 'secretpw', battleye: false }); // the game follows the running server's BattlEye setting
+  manager.deps.armaProcesses = async () => ({ games: [{ name: 'arma3_x64.exe', pid: 77 }], servers: [], battleye: [], launchers: [] });
+  manager.deps.launchVerifyMs = 1000; manager.deps.launchPollMs = 10;
+  manager.deps.gameLaunch = gameLaunch; // the real argument builder
+  const result = await manager.join({ ...s, password: 'secretpw' });
+  // This stand-in game process is "already running" for the check, so it is reported rather than started twice.
+  assert.equal(result.launched, false);
+  manager.deps.armaProcesses = (() => { let n = 0; return async () => (++n > 1 ? { games: [{ name: 'arma3_x64.exe', pid: 77 }], servers: [], battleye: [], launchers: [] } : { games: [], servers: [], battleye: [], launchers: [] }); })();
+  manager.lastJoin = 0;
+  const ok = await manager.join({ ...s, password: 'secretpw' });
+  assert.equal(ok.launched, true); assert.match(ok.message, /Game launch dispatched \(PID \d+\)/);
+  assert.equal(spawns.length, 2); assert.equal(path.basename(spawns[1].exe), 'arma3_x64.exe', 'BattlEye off: the game itself, as in v1.0.0');
+  assert.deepEqual(spawns[1].args, ['-noSplash', '-skipIntro', '-connect=127.0.0.1', `-port=${s.port}`, '-password=secretpw']);
+  assert.equal(spawns[1].options.shell, false); assert.equal(spawns[1].options.detached, true); assert.equal(spawns[1].options.cwd, gameDir);
+  assert.equal(opened.length, 0, 'no Steam');
+  const lines = logs.since(0).entries.map(e => e.message);
+  assert.ok(lines.includes('Starting Arma 3')); assert.ok(lines.some(l => /^Executable: .*arma3_x64\.exe$/.test(l)));
+  assert.ok(lines.some(l => /^Command: .*-connect=127\.0\.0\.1/.test(l) && !l.includes('secretpw') && l.includes('-password=[REDACTED]')));
+  assert.ok(lines.some(l => /^PID: \d+$/.test(l)));
+}));
+
+test('with BattlEye on, direct Launch uses Arma\'s BattlEye starter with the same arguments', () => {
+  const s = validateSettings({ ...defaults(), gameExe: 'C:/Arma 3/arma3_x64.exe', password: 'pw' });
+  const plan = gameLaunch(s);
+  assert.equal(path.win32.basename(plan.exe), 'arma3battleye.exe');
+  assert.deepEqual(plan.args, ['2', '1', '0', '-exe', 'arma3_x64.exe', '-noSplash', '-skipIntro', '-connect=127.0.0.1', `-port=${s.port}`, '-password=pw']);
+  assert.deepEqual(gameLaunch({ ...s, battleye: false }).args, ['-noSplash', '-skipIntro', '-connect=127.0.0.1', `-port=${s.port}`, '-password=pw']);
+});
+
+test('a game that never appears after Launch is reported as a failure (no Steam fallback)', () => fixture(async ({ manager, s, opened }) => {
+  await manager.start(s);
+  manager.deps.launchVerifyMs = 80; manager.deps.launchPollMs = 10;
+  await assert.rejects(manager.join(s), error => error.status === 504 && /no game process appeared within \d+ seconds.*\.rpt/.test(error.message));
+  assert.equal(opened.length, 0);
+}));
+
+test('saved settings from before 1.9.0 move to the direct start once; later choices are kept', () => {
+  const old = { ...defaults(), joinMethod: 'launcher', fastJoin: true }; delete old.launchFlow;
+  const moved = validateSettings(migrateLaunchFlow(old));
+  assert.equal(moved.joinMethod, 'direct'); assert.equal(moved.fastJoin, false); assert.equal(moved.launchFlow, 2);
+  const chosen = validateSettings(migrateLaunchFlow({ ...defaults(), joinMethod: 'launcher', fastJoin: true, launchFlow: 2 }));
+  assert.equal(chosen.joinMethod, 'launcher'); assert.equal(chosen.fastJoin, true);
+  assert.equal(migrateLaunchFlow(null), null);
+  assert.throws(() => validateSettings({ ...defaults(), launchFlow: 'x' }), /Launch flow/);
+});
