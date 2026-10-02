@@ -21,7 +21,7 @@ async function standIns(t) {
   await mkdir(gameDir); await mkdir(serverDir);
   const keepalive = path.join(dir, 'keepalive.cjs'); await writeFile(keepalive, 'setInterval(() => {}, 1000);\n');
   const exe = name => path.join(name.startsWith('arma3server') ? serverDir : gameDir, name);
-  for (const name of ['arma3launcher.exe', 'arma3_x64.exe', 'arma3server_x64.exe']) await copyFile(process.execPath, exe(name));
+  for (const name of ['arma3launcher.exe', 'arma3_x64.exe', 'arma3battleye.exe', 'arma3server_x64.exe']) await copyFile(process.execPath, exe(name));
   const previous = process.env.NODE_OPTIONS;
   // NODE_OPTIONS treats backslashes inside quotes as escapes, so pass the path with forward slashes.
   process.env.NODE_OPTIONS = `--require "${keepalive.replaceAll('\\', '/')}"`;
@@ -69,6 +69,35 @@ test('Windows: Open Arma 3 Launcher starts the real arma3launcher.exe, tasklist 
     assert.equal(blocked.launcher, false); assert.ok(blocked.running.some(p => p.pid === game.pid && p.closable));
     assert.ok(blocked.running.some(p => p.pid === server.pid && !p.closable));
   } finally { await manager.close(); }
+});
+
+test('Windows: direct Launch Arma 3 starts the game program, sees it in tasklist, reports a running copy, and starts again after it is closed', { skip: !windows }, async t => {
+  const { dir, exe, started } = await standIns(t);
+  const logs = new LogBook(dir);
+  // The stand-ins are copies of node.exe, which would reject Arma's startup arguments, so the plan hands
+  // them none. The spawn, detached start and real tasklist checks are the real code.
+  for (const [battleye, program, kind] of [[false, 'arma3_x64.exe', 'games'], [true, 'arma3battleye.exe', 'battleye']]) {
+    const manager = new ProcessManager({ dir, logs, deps: { openUrl: () => assert.fail('no Steam in the direct flow'), gameLaunch: () => ({ exe: exe(program), args: [] }), closeWaitMs: 8000 } });
+    const s = validateSettings({ ...defaults(), gameExe: exe('arma3_x64.exe'), joinMethod: 'direct', battleye, remoteHost: '127.0.0.1' });
+    try {
+      const first = await manager.joinRemote(s);
+      assert.equal(first.launched, true, first.message);
+      const running = await armaProcesses(); assert.equal(running[kind].length, 1, `${program} is in tasklist`);
+      started.push(...running[kind].map(p => p.pid));
+      manager.lastJoin = 0;
+      const again = await manager.joinRemote(s);
+      assert.equal(again.launched, false); assert.ok(again.running.some(p => p.pid === running[kind][0].pid && p.closable));
+      assert.equal((await armaProcesses())[kind].length, 1, 'no second copy was started');
+      await manager.closeGame(again.running.filter(p => p.closable).map(p => p.pid));
+      assert.equal((await armaProcesses())[kind].length, 0, 'closed');
+      manager.lastJoin = 0;
+      const third = await manager.joinRemote(s);
+      assert.equal(third.launched, true, third.message);
+      started.push(...(await armaProcesses())[kind].map(p => p.pid));
+      await manager.closeGame((await armaProcesses())[kind].map(p => p.pid));
+    } finally { await manager.close(); }
+  }
+  assert.ok(logs.since(0).entries.some(e => /^Command: .*arma3battleye\.exe/.test(e.message)));
 });
 
 test('Windows: the firewall helper adds, confirms and removes its own rule', { skip: !windows }, async t => {

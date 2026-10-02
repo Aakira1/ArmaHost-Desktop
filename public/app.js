@@ -202,7 +202,7 @@ function renderLive(live) {
 }
 async function refreshPreview() {
   const value = await api('/api/preview');
-  $('server-preview').textContent = value.server; $('client-preview').textContent = value.client; $('config-preview').textContent = value.config;
+  $('server-preview').textContent = value.server; $('client-preview').textContent = value.client; $('game-command').textContent = value.client; $('config-preview').textContent = value.config;
   if (state) renderDetails(state);
 }
 async function save(quiet = false) {
@@ -288,7 +288,9 @@ function showRunning(result) {
   $('running-title').textContent = result.alreadyOpen ? 'The Arma 3 Launcher is already open' : 'Arma 3 is already running';
   $('running-message').textContent = result.alreadyOpen
     ? 'Switch to it on the taskbar. If you can’t see it, close it here and a fresh one opens.'
-    : 'A copy of the game that is stuck (for example at the Arma logo) stops a new one from loading. Close it here and the Arma 3 Launcher opens.';
+    : result.launched === false
+      ? 'A copy of the game that is stuck (for example at the Arma logo) stops a new one from loading. Close it here and ArmaHost starts Arma 3 again.'
+      : 'A copy of the game that is stuck (for example at the Arma logo) stops a new one from loading. Close it here and the Arma 3 Launcher opens.';
   $('running-list').replaceChildren(...result.running.map(p => {
     const item = document.createElement('li'); item.className = p.closable ? '' : 'keep';
     const name = document.createElement('code'); name.textContent = `${p.name} · PID ${p.pid}`;
@@ -297,7 +299,7 @@ function showRunning(result) {
   }));
   const server = result.running.some(p => !p.closable);
   $('running-note').textContent = server ? 'Your dedicated server shows as a separate Arma 3 process in Task Manager. That is expected and it is not closed.' : '';
-  $('running-close').textContent = result.alreadyOpen ? 'Close and reopen the launcher' : 'Close Arma 3 and open the launcher';
+  $('running-close').textContent = result.alreadyOpen ? 'Close and reopen the launcher' : result.launched === false ? 'Close Arma 3 and launch again' : 'Close Arma 3 and open the launcher';
   return new Promise(resolve => { dialog.addEventListener('close', () => resolve(dialog.returnValue === 'yes'), { once: true }); dialog.showModal(); });
 }
 $('running-cancel').addEventListener('click', () => $('running-dialog').close('no'));

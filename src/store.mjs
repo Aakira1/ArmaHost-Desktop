@@ -1,7 +1,15 @@
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { AppError, defaults, validateSettings } from './config.mjs';
+import { AppError, defaults, validateSettings, LAUNCH_FLOW } from './config.mjs';
+
+// 1.9.0 returned Launch Arma 3 to the v1.0.0 model (start the game directly, no extra startup flags).
+// Settings saved before that carried the older defaults (launcher, fast join), so they are moved once.
+// Anything saved afterwards has launchFlow set and is left alone.
+export function migrateLaunchFlow(settings) {
+  if (!settings || typeof settings !== 'object' || Object.hasOwn(settings, 'launchFlow')) return settings;
+  return { ...settings, joinMethod: 'direct', fastJoin: false, launchFlow: LAUNCH_FLOW };
+}
 
 export async function atomicWrite(file, content) {
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -19,10 +27,10 @@ export class Store {
     try {
       state = JSON.parse(await readFile(file, 'utf8'));
       if (state.version !== 1 || !Number.isSafeInteger(state.revision) || state.revision < 0 || !Array.isArray(state.presets) || state.presets.length > 50) throw new Error('Unsupported state format');
-      state.settings = validateSettings(state.settings);
+      state.settings = validateSettings(migrateLaunchFlow(state.settings));
       for (const p of state.presets) {
         if (!/^[a-f0-9-]{36}$/.test(p.id) || typeof p.name !== 'string' || p.name.length > 60) throw new Error('Invalid preset');
-        p.settings = validateSettings(p.settings);
+        p.settings = validateSettings(migrateLaunchFlow(p.settings));
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw new Error(`Cannot read ${file}. State was NOT overwritten. Restore or rename state.json after backing it up. ${error.message}`);

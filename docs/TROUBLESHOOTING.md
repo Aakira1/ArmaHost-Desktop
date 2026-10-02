@@ -96,7 +96,10 @@ Optional (Setup › Session configuration). When the dedicated server exits with
 - When you host and play on the same PC, two Arma 3 processes are normal: one is your dedicated server (`arma3server_x64.exe`) and one is the game (`arma3_x64.exe`). **Run diagnostics** lists every Arma process and what it is.
 - Two copies of the **game** are not normal. A copy stuck at the logo (0% CPU) stops a new one from loading. Press **Open Arma 3 Launcher**: ArmaHost lists what is running and offers **Close Arma 3 and open the launcher**. It only closes the game, BattlEye and launcher processes, never a dedicated server.
 - If Windows refuses to close it (access denied), end it in Task Manager (Details tab, `arma3_x64.exe`, End task) or restart the PC.
-- Use the default join method, **Open the Arma 3 Launcher**, then Direct Connect with the copied address.
+- **Launch Arma 3 & join** starts the game directly, like v1.0.0. Open **Launch commands** (Setup, or "What Launch Arma 3 will run" on Overview) to see the exact command. If the game still stops at the logo, the newest `.rpt` in `%LOCALAPPDATA%\Arma 3\` says what it was waiting on.
+- If you'd rather use the Arma 3 Launcher, press **Open Arma 3 Launcher**, or choose it under Setup › When you press Launch Arma 3 & join.
+- **Skip the menu scene** and **Large memory pages** are off by default. They are advanced options that can make some PCs unstable.
+- **BattlEye:** with BattlEye on, Launch goes through Arma's own BattlEye starter so the game can join your server. With it off, Launch starts `arma3_x64.exe` directly.
 - The game's own log (the newest `.rpt` in `%LOCALAPPDATA%\Arma 3\`) shows what it is waiting on.
 
 ## Open Arma 3 Launcher does nothing

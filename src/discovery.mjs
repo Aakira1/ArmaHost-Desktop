@@ -112,7 +112,7 @@ export async function scanMods(roots) {
   }
   return { mods: mods.sort((a, b) => a.name.localeCompare(b.name)), warnings };
 }
-export async function diagnostics(s, dir, demo, { running = false, processes = null } = {}) {
+export async function diagnostics(s, dir, demo, { running = false, processes = null, launchCommand = null } = {}) {
   const checks = [];
   const add = (name, ok, detail, warning = false) => checks.push({ name, ok, detail, warning });
   const writable = async target => { try { await access(target, constants.W_OK); return true; } catch { return false; } };
@@ -124,6 +124,7 @@ export async function diagnostics(s, dir, demo, { running = false, processes = n
   const gameSet = Boolean(s.gameExe);
   add('Game / server executables differ', !gameSet || !s.serverExe || path.win32.normalize(s.gameExe).toLowerCase() !== path.win32.normalize(s.serverExe).toLowerCase(), 'The game client and dedicated server must be separate files; Start never launches the game.');
   add('Game executable (Join only)', await isFile(s.gameExe), s.gameExe || 'Optional: only needed for Join / Launch Game. Choose arma3_x64.exe in Setup.', true);
+  if (launchCommand) add('Launch Arma 3 command', true, launchCommand);
   if (s.gameExe) {
     const launcher = path.join(path.dirname(s.gameExe), 'arma3launcher.exe');
     add('Arma 3 Launcher', await isFile(launcher), (await isFile(launcher)) ? launcher : `Not found next to the game: ${launcher}. Open Arma 3 Launcher will ask Steam to start Arma 3 instead.`, true);
